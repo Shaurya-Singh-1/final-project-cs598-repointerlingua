@@ -4,7 +4,7 @@ from pathlib import Path
 
 from repointerlingua.reasoners import JsonPromptReasoner, PatternReasoner
 from repointerlingua.runtime import WorkspaceSession
-from repointerlingua.schemas import BugState, EpisodeResult, Observation, TaskSpec
+from repointerlingua.schemas import BugState, EpisodeResult, Observation, PatchOperation, TaskSpec
 from repointerlingua.utils import clamp_tail, ensure_dir, write_json
 
 
@@ -17,6 +17,23 @@ class BaseAgent:
     def _persist_result(self, run_dir: Path, result: EpisodeResult) -> None:
         ensure_dir(run_dir)
         write_json(run_dir / "episode.json", result.to_dict())
+
+    def _filter_patch_set(
+        self,
+        patch_set: list[PatchOperation],
+        code_observations: list[Observation],
+        notes: list[str],
+    ) -> list[PatchOperation]:
+        allowed_paths = {
+            observation.path
+            for observation in code_observations
+            if observation.path and not observation.content.startswith("[missing file]")
+        }
+        filtered = [patch for patch in patch_set if patch.path in allowed_paths]
+        dropped = [patch.path for patch in patch_set if patch.path not in allowed_paths]
+        if dropped:
+            notes.append(f"Dropped patch proposals outside candidate files: {', '.join(dropped[:5])}")
+        return filtered
 
 
 class ReactiveTranscriptAgent(BaseAgent):
@@ -49,6 +66,8 @@ class ReactiveTranscriptAgent(BaseAgent):
         patch_applied = False
         final_result = initial
         notes = []
+
+        patch_set = self._filter_patch_set(patch_set, code_observations, notes)
 
         if patch_set:
             session.apply_patches(patch_set)
@@ -112,6 +131,8 @@ class BugStateAgent(BaseAgent):
         patch_applied = False
         final_result = initial
         notes = []
+
+        patch_set = self._filter_patch_set(patch_set, code_observations, notes)
 
         if patch_set:
             session.apply_patches(patch_set)

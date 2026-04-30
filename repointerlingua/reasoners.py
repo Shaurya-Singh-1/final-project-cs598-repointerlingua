@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Iterable
 
 from repointerlingua.llm_backends import BackendProtocol, Message
@@ -23,6 +24,33 @@ def _extract_error_lines(text: str) -> list[str]:
 
 def _collect_text(values: Iterable[str]) -> str:
     return "\n".join(value.lower() for value in values if value)
+
+
+def _truncate_for_prompt(text: str, limit: int = 1600) -> str:
+    if len(text) <= limit:
+        return text
+    head = text[:1000]
+    tail = text[-400:]
+    return f"{head}\n...\n{tail}"
+
+
+def _coerce_string_list(values) -> list[str]:
+    normalized: list[str] = []
+    for value in values or []:
+        if isinstance(value, str):
+            item = value.strip()
+        elif isinstance(value, dict):
+            parts = []
+            for key in ("title", "description", "file", "path", "command", "output", "content", "note"):
+                raw = value.get(key)
+                if raw:
+                    parts.append(str(raw).strip())
+            item = " | ".join(parts)
+        else:
+            item = str(value).strip()
+        if item:
+            normalized.append(_truncate_for_prompt(item, 220))
+    return normalized[:8]
 
 
 def _check_clues(text: str, clues: list[str]) -> bool:
@@ -102,21 +130,51 @@ class JsonPromptReasoner:
     def __init__(self, backend: BackendProtocol):
         self.backend = backend
 
-    def _extract_json(self, text: str) -> dict:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start == -1 or end == -1 or end <= start:
+    def _extract_json(self, text: str, required_keys: set[str] | None = None) -> dict:
+        normalized = text.strip()
+        if not normalized:
             raise ValueError(f"Could not find JSON object in model output: {text}")
-        return json.loads(text[start : end + 1])
+
+        fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", normalized, re.DOTALL)
+        candidates: list[str] = []
+        if fence_match:
+            candidates.append(fence_match.group(1))
+
+        decoder = json.JSONDecoder()
+        for index, char in enumerate(normalized):
+            if char != "{":
+                continue
+            try:
+                payload, end = decoder.raw_decode(normalized[index:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                candidate = normalized[index : index + end]
+                candidates.append(candidate)
+
+        for candidate in candidates:
+            payload = json.loads(candidate)
+            if required_keys and not required_keys.issubset(payload.keys()):
+                continue
+            return payload
+
+        raise ValueError(f"Could not find JSON object in model output: {text}")
 
     def update_bug_state(self, task: TaskSpec, state: BugState, observation: Observation) -> BugState:
+        observation_content = _truncate_for_prompt(observation.content)
         messages = [
             Message(
                 role="system",
                 content=(
                     "You are updating a persistent BugState for a software debugging agent. "
-                    "Return JSON only with keys issue_facts, test_facts, code_facts, "
-                    "error_messages, suspect_files, hypotheses, constraints, patches_considered."
+                    "Return JSON only. Do not use markdown fences. "
+                    "Every field value must be an array of short strings, never objects. "
+                    "Do not include task_id. Do not copy full code blocks. "
+                    "Valid keys are issue_facts, test_facts, code_facts, "
+                    "error_messages, suspect_files, hypotheses, constraints, patches_considered. "
+                    'Example: {"issue_facts":["..."],"test_facts":["..."],"code_facts":["..."],'
+                    '"error_messages":["..."],"suspect_files":["path.py"],"hypotheses":["..."],'
+                    '"constraints":["..."],"patches_considered":["..."]}'
                 ),
             ),
             Message(
@@ -124,13 +182,38 @@ class JsonPromptReasoner:
                 content=(
                     f"Task title: {task.title}\n\n"
                     f"Current state:\n{json.dumps(state.to_dict(), indent=2)}\n\n"
-                    f"New observation ({observation.kind}):\n{observation.content}\n\n"
+                    f"New observation ({observation.kind}):\n{observation_content}\n\n"
+                    "Summarize only the most important facts. "
+                    "Keep each list short and each item under 160 characters.\n\n"
                     "Return the updated BugState JSON."
                 ),
             ),
         ]
-        payload = self._extract_json(self.backend.generate(messages))
-        return BugState(task_id=task.task_id, **payload)
+        payload = self._extract_json(
+            self.backend.generate(messages),
+            required_keys={
+                "issue_facts",
+                "test_facts",
+                "code_facts",
+                "error_messages",
+                "suspect_files",
+                "hypotheses",
+                "constraints",
+                "patches_considered",
+            },
+        )
+        payload.pop("task_id", None)
+        return BugState(
+            task_id=task.task_id,
+            issue_facts=_coerce_string_list(payload.get("issue_facts")),
+            test_facts=_coerce_string_list(payload.get("test_facts")),
+            code_facts=_coerce_string_list(payload.get("code_facts")),
+            error_messages=_coerce_string_list(payload.get("error_messages")),
+            suspect_files=_coerce_string_list(payload.get("suspect_files")),
+            hypotheses=_coerce_string_list(payload.get("hypotheses")),
+            constraints=_coerce_string_list(payload.get("constraints")),
+            patches_considered=_coerce_string_list(payload.get("patches_considered")),
+        )
 
     def propose_patch_from_state(
         self,
@@ -146,7 +229,9 @@ class JsonPromptReasoner:
                 role="system",
                 content=(
                     "You are a software repair agent. Return JSON only with keys rationale and patches. "
-                    "Each patch must have path, search, and replace."
+                    "Each patch must have path, search, and replace. "
+                    "Use only file paths that appear in Candidate files exactly. "
+                    "If unsure, return an empty patches list. Never invent placeholder paths."
                 ),
             ),
             Message(
@@ -159,8 +244,21 @@ class JsonPromptReasoner:
                 ),
             ),
         ]
-        payload = self._extract_json(self.backend.generate(messages))
-        return [PatchOperation(**patch) for patch in payload.get("patches", [])]
+        payload = self._extract_json(self.backend.generate(messages), required_keys={"patches"})
+        patches = []
+        for patch in payload.get("patches", []):
+            if not isinstance(patch, dict):
+                continue
+            if not {"path", "search", "replace"}.issubset(patch.keys()):
+                continue
+            patches.append(
+                PatchOperation(
+                    path=patch["path"],
+                    search=patch["search"],
+                    replace=patch["replace"],
+                )
+            )
+        return patches
 
     def propose_patch_from_transcript(self, task: TaskSpec, transcript: str) -> list[PatchOperation]:
         messages = [
@@ -168,7 +266,9 @@ class JsonPromptReasoner:
                 role="system",
                 content=(
                     "You are a software repair agent with limited context. Return JSON only with keys rationale and patches. "
-                    "Each patch must have path, search, and replace."
+                    "Each patch must have path, search, and replace. "
+                    "Use only file paths that appear in the transcript exactly. "
+                    "If unsure, return an empty patches list. Never invent placeholder paths."
                 ),
             ),
             Message(
@@ -180,5 +280,18 @@ class JsonPromptReasoner:
                 ),
             ),
         ]
-        payload = self._extract_json(self.backend.generate(messages))
-        return [PatchOperation(**patch) for patch in payload.get("patches", [])]
+        payload = self._extract_json(self.backend.generate(messages), required_keys={"patches"})
+        patches = []
+        for patch in payload.get("patches", []):
+            if not isinstance(patch, dict):
+                continue
+            if not {"path", "search", "replace"}.issubset(patch.keys()):
+                continue
+            patches.append(
+                PatchOperation(
+                    path=patch["path"],
+                    search=patch["search"],
+                    replace=patch["replace"],
+                )
+            )
+        return patches

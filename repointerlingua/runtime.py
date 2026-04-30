@@ -122,22 +122,53 @@ class WorkspaceSession:
             if result.returncode != 0:
                 (self.run_root / "install.log").write_text("\n\n".join(install_logs), encoding="utf-8")
                 raise RuntimeError(f"install command failed: {command}")
+            if '-m pipenv --python' in command:
+                pip_bootstrap = f'"{sys.executable}" -m pipenv run python -m pip install "pip<24"'
+                bootstrap_result = subprocess.run(
+                    pip_bootstrap,
+                    shell=True,
+                    cwd=self.workspace,
+                    text=True,
+                    capture_output=True,
+                )
+                install_logs.append(
+                    f"$ {pip_bootstrap}\n{bootstrap_result.stdout}\n{bootstrap_result.stderr}\n[returncode={bootstrap_result.returncode}]"
+                )
+                if bootstrap_result.returncode != 0:
+                    (self.run_root / "install.log").write_text("\n\n".join(install_logs), encoding="utf-8")
+                    raise RuntimeError(f"install command failed: {pip_bootstrap}")
         if install_logs:
             (self.run_root / "install.log").write_text("\n\n".join(install_logs), encoding="utf-8")
 
     def _normalize_install_command(self, command: str) -> str:
-        command = re.sub(r"\bpipenv\b", f'"{sys.executable}" -m pipenv', command)
+        pipenv_runner = f'"{sys.executable}" -m pipenv'
 
-        match = re.search(r"pipenv\s+--python\s+([0-9.]+)", command)
-        if not match:
-            return command
+        match = re.search(r"\bpipenv\s+--python\s+([0-9.]+)", command)
+        if match:
+            version = match.group(1)
+            interpreter = self._resolve_python_interpreter(version)
+            if interpreter is not None:
+                return re.sub(
+                    r"\bpipenv\s+--python\s+[0-9.]+",
+                    f'{pipenv_runner} --python "{interpreter}"',
+                    command,
+                    count=1,
+                )
+            return re.sub(r"\bpipenv\b", pipenv_runner, command)
 
-        version = match.group(1)
-        interpreter = self._resolve_python_interpreter(version)
-        if interpreter is None:
-            return command
+        match = re.search(r"\bpipenv\s+install\s+-r\s+(\S+)", command)
+        if match:
+            req_file = match.group(1)
+            return f"{pipenv_runner} run python -m pip install -r {req_file}"
 
-        return re.sub(r"pipenv\s+--python\s+[0-9.]+", f'pipenv --python "{interpreter}"', command, count=1)
+        match = re.search(r"\bpipenv\s+install\b(.*)", command)
+        if match:
+            args = match.group(1).strip()
+            if args:
+                return f"{pipenv_runner} run python -m pip install {args}"
+            return f"{pipenv_runner} install"
+
+        return re.sub(r"\bpipenv\b", pipenv_runner, command)
 
     def _resolve_python_interpreter(self, version: str) -> str | None:
         env_key = f"REPOINTERLINGUA_PYTHON_{version.replace('.', '_')}"
@@ -182,6 +213,7 @@ class WorkspaceSession:
         return None
 
     def run_command(self, command: str) -> CommandResult:
+        command = self._normalize_install_command(command)
         completed = subprocess.run(
             command,
             shell=True,
