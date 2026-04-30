@@ -29,6 +29,23 @@ def summarize_results(results: list[EpisodeResult]) -> dict:
 def write_summary(summary: dict, out_dir: Path) -> None:
     write_json(out_dir / "summary.json", summary)
 
+    benchmarks = {row["benchmark"] for row in summary["task_results"]}
+    if benchmarks == {"mini_repair"}:
+        footer = (
+            "This summary reports the primary controlled benchmark for the project. "
+            "It measures end-to-end debugging performance on small reproducible repair tasks "
+            "without depending on legacy packaging or cluster-specific setup."
+        )
+    elif benchmarks == {"pybughive"}:
+        footer = (
+            "This summary reports a real-world validation slice. "
+            "Use it as external evidence on top of the controlled benchmark, not as the primary result table."
+        )
+    else:
+        footer = (
+            "This summary reports the executed benchmark slice for the current run."
+        )
+
     lines = []
     lines.append("# Local Result Summary")
     lines.append("")
@@ -48,8 +65,5 @@ def write_summary(summary: dict, out_dir: Path) -> None:
         patched = "yes" if row["patch_applied"] else "no"
         lines.append(f"| {row['task_id']} | {row['agent_name']} | {solved} | {patched} |")
     lines.append("")
-    lines.append(
-        "This local benchmark is a system-validation benchmark: it checks that the workspace-copy, "
-        "evaluation, patching, and explicit-state machinery all work before larger GPU-backed runs."
-    )
+    lines.append(footer)
     write_text(out_dir / "summary.md", "\n".join(lines))

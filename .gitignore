@@ -2,11 +2,13 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
+repointerlingua.egg-info/
 *.pyc
 *.pyo
 *.pyd
 *.DS_Store
 runs/
+reports/local_debug_*/
 reports/local_results/*.json
 reports/local_results/*.jsonl
 reports/local_results/*.csv

@@ -58,12 +58,12 @@ using:
 
 - `reasoner=llm`
 - `backend=transformers`
-- `model=Qwen/Qwen2.5-Coder-7B-Instruct`
+- `model=Qwen/Qwen2.5-Coder-3B-Instruct` by default for local runs
 
 Outputs go to:
 
-- `reports/mini_repair_qwen/summary.md`
-- `reports/mini_repair_qwen/summary.json`
+- `reports/mini_repair_qwen_3b/summary.md`
+- `reports/mini_repair_qwen_3b/summary.json`
 
 Override the defaults if needed:
 
@@ -128,7 +128,7 @@ SWE-bench Lite is a better long-term public benchmark target than PyBugHive, but
 For a GPU machine, the intended workflow is:
 
 1. run `bash scripts/run_mini_llm.sh`
-2. inspect `reports/mini_repair_qwen/summary.md`
+2. inspect `reports/mini_repair_qwen_3b/summary.md`
 3. optionally run a small PyBugHive validation slice
 4. optionally export trajectories and fine-tune
 

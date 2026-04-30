@@ -4,7 +4,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-python3 -m repointerlingua.cli compare \
+PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  PYTHON_BIN="${PYTHON_BIN_FALLBACK:-python3}"
+fi
+
+"$PYTHON_BIN" -m repointerlingua.cli compare \
   --benchmark mini_repair \
   --agents react bugstate \
   --reasoner pattern \

@@ -53,6 +53,31 @@ def _coerce_string_list(values) -> list[str]:
     return normalized[:8]
 
 
+def _trim_list(values: list[str], limit: int) -> list[str]:
+    return values[:limit]
+
+
+def _format_section(title: str, values: list[str]) -> str:
+    if not values:
+        return f"{title}:\n- (none)"
+    body = "\n".join(f"- {value}" for value in values)
+    return f"{title}:\n{body}"
+
+
+def _format_bug_state(state: BugState) -> str:
+    sections = [
+        _format_section("Issue Facts", state.issue_facts),
+        _format_section("Test Facts", state.test_facts),
+        _format_section("Code Facts", state.code_facts),
+        _format_section("Error Messages", state.error_messages),
+        _format_section("Suspect Files", state.suspect_files),
+        _format_section("Hypotheses", state.hypotheses),
+        _format_section("Constraints", state.constraints),
+        _format_section("Patches Considered", state.patches_considered),
+    ]
+    return "\n\n".join(sections)
+
+
 def _truncate_patch_choices(patch_choices: list[dict], limit: int = 12) -> list[dict]:
     normalized = []
     for choice in patch_choices[:limit]:
@@ -66,6 +91,19 @@ def _truncate_patch_choices(patch_choices: list[dict], limit: int = 12) -> list[
             }
         )
     return normalized
+
+
+def _format_patch_choices(patch_choices: list[dict]) -> str:
+    lines = []
+    for choice in patch_choices:
+        lines.append(f"PATCH_ID: {choice['patch_id']}")
+        lines.append(f"PATH: {choice['path']}")
+        lines.append(f"SEARCH:")
+        lines.append(choice["search"])
+        lines.append("REPLACE:")
+        lines.append(choice["replace"])
+        lines.append("")
+    return "\n".join(lines).strip()
 
 
 def _check_clues(text: str, clues: list[str]) -> bool:
@@ -82,31 +120,37 @@ def _check_clues(text: str, clues: list[str]) -> bool:
     return True
 
 
+def accumulate_bug_state(task: TaskSpec, state: BugState, observation: Observation) -> BugState:
+    updated = BugState(**state.to_dict())
+    if observation.kind == "issue":
+        updated.issue_facts.extend(_compact_lines(observation.content))
+        updated.constraints.extend(task.metadata.get("constraints", []))
+    elif observation.kind == "test_output":
+        updated.test_facts.extend(_compact_lines(observation.content))
+        updated.error_messages.extend(_extract_error_lines(observation.content))
+    elif observation.kind == "code":
+        if observation.path and observation.path not in updated.suspect_files:
+            updated.suspect_files.append(observation.path)
+        updated.code_facts.extend(_compact_lines(observation.content))
+    elif observation.kind == "patch_feedback":
+        updated.error_messages.extend(_compact_lines(observation.content))
+
+    updated.issue_facts = _trim_list(updated.issue_facts, 12)
+    updated.test_facts = _trim_list(updated.test_facts, 12)
+    updated.code_facts = _trim_list(updated.code_facts, 12)
+    updated.error_messages = _trim_list(updated.error_messages, 12)
+    updated.suspect_files = _trim_list(updated.suspect_files, 8)
+    updated.hypotheses = _trim_list(updated.hypotheses, 8)
+    updated.constraints = _trim_list(updated.constraints, 8)
+    updated.patches_considered = _trim_list(updated.patches_considered, 8)
+    return updated
+
+
 class PatternReasoner:
     name = "pattern"
 
     def update_bug_state(self, task: TaskSpec, state: BugState, observation: Observation) -> BugState:
-        updated = BugState(**state.to_dict())
-        if observation.kind == "issue":
-            updated.issue_facts.extend(_compact_lines(observation.content))
-            updated.constraints.extend(task.metadata.get("constraints", []))
-        elif observation.kind == "test_output":
-            updated.test_facts.extend(_compact_lines(observation.content))
-            updated.error_messages.extend(_extract_error_lines(observation.content))
-        elif observation.kind == "code":
-            if observation.path and observation.path not in updated.suspect_files:
-                updated.suspect_files.append(observation.path)
-            updated.code_facts.extend(_compact_lines(observation.content))
-        elif observation.kind == "patch_feedback":
-            updated.error_messages.extend(_compact_lines(observation.content))
-
-        # Keep the state concise and persistent.
-        updated.issue_facts = updated.issue_facts[:12]
-        updated.test_facts = updated.test_facts[:12]
-        updated.code_facts = updated.code_facts[:12]
-        updated.error_messages = updated.error_messages[:12]
-        updated.suspect_files = updated.suspect_files[:8]
-        return updated
+        return accumulate_bug_state(task, state, observation)
 
     def propose_patch_from_state(
         self,
@@ -236,7 +280,7 @@ class JsonPromptReasoner:
             ),
         ]
         payload = self._extract_json(
-            self.backend.generate(messages),
+            self.backend.generate(messages, max_tokens=384),
             required_keys={
                 "issue_facts",
                 "test_facts",
@@ -292,7 +336,7 @@ class JsonPromptReasoner:
                 ),
             ),
         ]
-        payload = self._extract_json(self.backend.generate(messages), required_keys={"patches"})
+        payload = self._extract_json(self.backend.generate(messages, max_tokens=384), required_keys={"patches"})
         patches = []
         for patch in payload.get("patches", []):
             if not isinstance(patch, dict):
@@ -330,7 +374,7 @@ class JsonPromptReasoner:
                 ),
             ),
         ]
-        payload = self._extract_json(self.backend.generate(messages), required_keys={"patches"})
+        payload = self._extract_json(self.backend.generate(messages, max_tokens=384), required_keys={"patches"})
         patches = []
         for patch in payload.get("patches", []):
             if not isinstance(patch, dict):
@@ -352,8 +396,8 @@ class JsonPromptReasoner:
         state: BugState,
         patch_choices: list[dict],
     ) -> list[PatchOperation]:
-        truncated_choices = _truncate_patch_choices(patch_choices)
-        valid_ids = {choice["patch_id"] for choice in truncated_choices}
+        preview_choices = _truncate_patch_choices(patch_choices)
+        valid_ids = {choice["patch_id"] for choice in preview_choices}
         messages = [
             Message(
                 role="system",
@@ -367,17 +411,17 @@ class JsonPromptReasoner:
                 role="user",
                 content=(
                     f"Task title: {task.title}\n\n"
-                    f"BugState:\n{json.dumps(state.to_dict(), indent=2)}\n\n"
-                    f"Candidate patches:\n{json.dumps(truncated_choices, indent=2)}\n\n"
+                    f"BugState:\n{_format_bug_state(state)}\n\n"
+                    f"Candidate patches:\n{_format_patch_choices(preview_choices)}\n\n"
                     "Pick the best patch id."
                 ),
             ),
         ]
-        raw = self.backend.generate(messages)
+        raw = self.backend.generate(messages, max_tokens=32)
         patch_id = self._extract_choice(raw, valid_ids)
         if patch_id is None:
             return []
-        selected = next(choice for choice in truncated_choices if choice["patch_id"] == patch_id)
+        selected = next(choice for choice in patch_choices if choice["patch_id"] == patch_id)
         return [
             PatchOperation(
                 path=selected["path"],
@@ -387,8 +431,8 @@ class JsonPromptReasoner:
         ]
 
     def select_patch_from_transcript(self, task: TaskSpec, transcript: str, patch_choices: list[dict]) -> list[PatchOperation]:
-        truncated_choices = _truncate_patch_choices(patch_choices)
-        valid_ids = {choice["patch_id"] for choice in truncated_choices}
+        preview_choices = _truncate_patch_choices(patch_choices)
+        valid_ids = {choice["patch_id"] for choice in preview_choices}
         messages = [
             Message(
                 role="system",
@@ -403,16 +447,16 @@ class JsonPromptReasoner:
                 content=(
                     f"Task title: {task.title}\n\n"
                     f"Transcript:\n{transcript}\n\n"
-                    f"Candidate patches:\n{json.dumps(truncated_choices, indent=2)}\n\n"
+                    f"Candidate patches:\n{_format_patch_choices(preview_choices)}\n\n"
                     "Pick the best patch id."
                 ),
             ),
         ]
-        raw = self.backend.generate(messages)
+        raw = self.backend.generate(messages, max_tokens=32)
         patch_id = self._extract_choice(raw, valid_ids)
         if patch_id is None:
             return []
-        selected = next(choice for choice in truncated_choices if choice["patch_id"] == patch_id)
+        selected = next(choice for choice in patch_choices if choice["patch_id"] == patch_id)
         return [
             PatchOperation(
                 path=selected["path"],

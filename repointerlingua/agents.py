@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from repointerlingua.patching import PatchApplyError
-from repointerlingua.reasoners import JsonPromptReasoner, PatternReasoner
+from repointerlingua.reasoners import JsonPromptReasoner, PatternReasoner, accumulate_bug_state
 from repointerlingua.runtime import WorkspaceSession
 from repointerlingua.schemas import BugState, EpisodeResult, Observation, PatchOperation, TaskSpec
 from repointerlingua.utils import clamp_tail, ensure_dir, write_json
@@ -168,21 +168,26 @@ class BugStateAgent(BaseAgent):
         state = BugState(task_id=task.task_id)
         code_observations = []
 
+        def update_state(observation: Observation) -> BugState:
+            if self.repair_mode == "select":
+                return accumulate_bug_state(task, state, observation)
+            return self.reasoner.update_bug_state(task, state, observation)
+
         issue_observation = session.read_issue()
         observations.append(issue_observation)
-        state = self.reasoner.update_bug_state(task, state, issue_observation)
+        state = update_state(issue_observation)
         state_history.append({"step": "issue", "state": state.to_dict()})
 
         initial = session.run_tests()
         initial_observation = initial.to_observation()
         observations.append(initial_observation)
-        state = self.reasoner.update_bug_state(task, state, initial_observation)
+        state = update_state(initial_observation)
         state_history.append({"step": "tests-before", "state": state.to_dict()})
 
         for code_observation in session.read_candidate_files():
             observations.append(code_observation)
             code_observations.append(code_observation)
-            state = self.reasoner.update_bug_state(task, state, code_observation)
+            state = update_state(code_observation)
             state_history.append({"step": f"read:{code_observation.path}", "state": state.to_dict()})
 
         patch_applied = False
@@ -213,7 +218,7 @@ class BugStateAgent(BaseAgent):
             except PatchApplyError as exc:
                 feedback = Observation(kind="patch_feedback", content=str(exc))
                 observations.append(feedback)
-                state = self.reasoner.update_bug_state(task, state, feedback)
+                state = update_state(feedback)
                 state_history.append({"step": f"patch-feedback:{attempt}", "state": state.to_dict()})
                 notes.append(f"Patch application failed on BugState attempt {attempt}: {exc}")
                 if attempt == self.max_patch_attempts:
