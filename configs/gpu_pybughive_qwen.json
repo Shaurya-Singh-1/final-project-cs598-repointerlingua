@@ -1,0 +1,11 @@
+{
+  "benchmark": "pybughive",
+  "agent": "bugstate",
+  "reasoner": "llm",
+  "backend": "transformers",
+  "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "notes": [
+    "Prepare a manifest from PyBugHive first.",
+    "Run on a Linux GPU box with transformers, accelerate, and peft installed."
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "task_id": "parse_iso_z_suffix",
+  "title": "ISO timestamps with trailing Z should parse as UTC",
+  "issue_file": "issue.md",
+  "repo_dir": "repo",
+  "test_commands": ["python3 -m unittest discover -s tests -p 'test*.py' -v -f"],
+  "candidate_files": ["minilib/dates.py"],
+  "reference_patch": [
+    {
+      "path": "minilib/dates.py",
+      "search": "from datetime import datetime\n\n\ndef parse_timestamp(value):\n    return datetime.strptime(value, \"%Y-%m-%dT%H:%M:%SZ\")\n",
+      "replace": "from datetime import datetime, timezone\n\n\ndef parse_timestamp(value):\n    return datetime.strptime(value, \"%Y-%m-%dT%H:%M:%SZ\").replace(tzinfo=timezone.utc)\n"
+    }
+  ],
+  "react_clues": [
+    "unexpectedly none",
+    "%y-%m-%dt%h:%m:%sz"
+  ],
+  "bugstate_clues": [
+    "trailing `z`",
+    "utc timezone",
+    "%y-%m-%dt%h:%m:%sz"
+  ],
+  "tags": ["datetime", "parsing"],
+  "metadata": {
+    "constraints": [
+      "Interpret trailing Z as UTC."
+    ]
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "task_id": "request_scheme_validation",
+  "title": "URL validation should reject relative paths with colons but keep data URLs",
+  "issue_file": "issue.md",
+  "repo_dir": "repo",
+  "test_commands": ["python3 -m unittest discover -s tests -p 'test*.py' -v -f"],
+  "candidate_files": ["minilib/request.py"],
+  "reference_patch": [
+    {
+      "path": "minilib/request.py",
+      "search": "    if \":\" not in url:\n",
+      "replace": "    if (\"://\" not in url) and (not url.startswith(\"data:\")):\n"
+    }
+  ],
+  "react_clues": [
+    "/foo:bar",
+    "data:",
+    "if \":\" not in url"
+  ],
+  "bugstate_clues": [
+    "/foo:bar",
+    "data:",
+    "containing a colon",
+    "if \":\" not in url"
+  ],
+  "tags": ["url", "validation"],
+  "metadata": {
+    "constraints": [
+      "Reject relative paths without a true scheme.",
+      "Keep data URLs accepted."
+    ]
+  }
+}

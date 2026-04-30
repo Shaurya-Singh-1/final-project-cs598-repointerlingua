@@ -1,0 +1,32 @@
+{
+  "task_id": "env_case_override",
+  "title": "Environment-style overrides should be case-insensitive",
+  "issue_file": "issue.md",
+  "repo_dir": "repo",
+  "test_commands": ["python3 -m unittest discover -s tests -p 'test*.py' -v -f"],
+  "candidate_files": ["minilib/env.py"],
+  "reference_patch": [
+    {
+      "path": "minilib/env.py",
+      "search": "def merge_env(defaults, overrides):\n    merged = dict(defaults)\n    for key, value in overrides.items():\n        if key in merged:\n            merged[key] = value\n    return merged\n",
+      "replace": "def merge_env(defaults, overrides):\n    merged = dict(defaults)\n    normalized = {key.lower(): key for key in merged}\n    for key, value in overrides.items():\n        target = normalized.get(key.lower())\n        if target is not None:\n            merged[target] = value\n    return merged\n"
+    }
+  ],
+  "react_clues": [
+    "windows",
+    "api_key",
+    "if key in merged"
+  ],
+  "bugstate_clues": [
+    "windows",
+    "api_key",
+    "case-insensitive",
+    "if key in merged"
+  ],
+  "tags": ["environment", "platform"],
+  "metadata": {
+    "constraints": [
+      "Environment-style keys should match case-insensitively."
+    ]
+  }
+}

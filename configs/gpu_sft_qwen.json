@@ -1,0 +1,9 @@
+{
+  "train_file": "reports/sft_data/patch_generation.jsonl",
+  "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "epochs": 1,
+  "notes": [
+    "Use a GPU machine for LoRA training.",
+    "Start with patch generation data, then add state-update data as a second stage."
+  ]
+}

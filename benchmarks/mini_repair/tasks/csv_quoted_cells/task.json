@@ -1,0 +1,30 @@
+{
+  "task_id": "csv_quoted_cells",
+  "title": "Quoted CSV cells should keep commas inside the field",
+  "issue_file": "issue.md",
+  "repo_dir": "repo",
+  "test_commands": ["python3 -m unittest discover -s tests -p 'test*.py' -v -f"],
+  "candidate_files": ["minilib/csvparse.py"],
+  "reference_patch": [
+    {
+      "path": "minilib/csvparse.py",
+      "search": "def parse_csv_line(line):\n    return [part.strip() for part in line.split(\",\")]\n",
+      "replace": "import csv\n\n\ndef parse_csv_line(line):\n    return next(csv.reader([line]))\n"
+    }
+  ],
+  "react_clues": [
+    "assertionerror",
+    "line.split(\",\")"
+  ],
+  "bugstate_clues": [
+    "\"ng, david\"",
+    "quoted comma",
+    "line.split(\",\")"
+  ],
+  "tags": ["csv", "parser"],
+  "metadata": {
+    "constraints": [
+      "Quoted commas must stay inside the field."
+    ]
+  }
+}

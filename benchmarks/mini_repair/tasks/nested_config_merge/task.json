@@ -1,0 +1,29 @@
+{
+  "task_id": "nested_config_merge",
+  "title": "Nested config merge should not crash on new nested keys",
+  "issue_file": "issue.md",
+  "repo_dir": "repo",
+  "test_commands": ["python3 -m unittest discover -s tests -p 'test*.py' -v -f"],
+  "candidate_files": ["minilib/config.py"],
+  "reference_patch": [
+    {
+      "path": "minilib/config.py",
+      "search": "            new_config[k] = merge_configs(default[k], v)\n",
+      "replace": "            new_config[k] = merge_configs(default.get(k, {}), v)\n"
+    }
+  ],
+  "react_clues": [
+    "keyerror",
+    "default[k], v"
+  ],
+  "bugstate_clues": [
+    "project.tags.primary",
+    "default[k], v"
+  ],
+  "tags": ["config", "nested-dict"],
+  "metadata": {
+    "constraints": [
+      "Preserve existing nested defaults while allowing new nested keys."
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "benchmark": "mini_repair",
+  "agents": ["react", "bugstate"],
+  "reasoner": "pattern",
+  "transcript_window_chars": 350,
+  "output": "reports/local_results"
+}
