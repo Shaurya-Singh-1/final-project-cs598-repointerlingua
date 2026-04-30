@@ -1,11 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=repointerlingua-smoke
-#SBATCH --partition=gpuA40x4-interactive
+#SBATCH --partition=cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
-#SBATCH --gpus-per-node=1
-#SBATCH --mem=24G
+#SBATCH --mem=16G
 #SBATCH --time=00:20:00
 #SBATCH --output=slurm-smoke-%j.out
 #SBATCH --error=slurm-smoke-%j.err
