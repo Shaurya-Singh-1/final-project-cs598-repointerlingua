@@ -42,7 +42,7 @@ class CommandResult:
 class WorkspaceSession:
     def __init__(self, task: TaskSpec, run_root: Path):
         self.task = task
-        self.run_root = ensure_dir(run_root)
+        self.run_root = ensure_dir(run_root).resolve()
         self.workspace = self.run_root / "workspace"
 
     def materialize(self) -> Path:

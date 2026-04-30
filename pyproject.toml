@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "RYS-inspired explicit BugState software-agent research project"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["pipenv>=2024.4.0"]
 
 [project.optional-dependencies]
 openai = ["openai>=1.52.0"]
