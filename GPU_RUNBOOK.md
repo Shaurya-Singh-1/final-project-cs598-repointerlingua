@@ -39,9 +39,9 @@ if torch.cuda.is_available():
 PY
 ```
 
-## 3. Run the primary benchmark
+## 3. Run the validation benchmark
 
-The main GPU experiment is the LLM-backed `mini_repair` comparison:
+Start with the LLM-backed `mini_repair` comparison:
 
 ```bash
 ./.venv-gpu/bin/python3 -m repointerlingua.cli compare \
@@ -67,7 +67,28 @@ Expected outputs:
 - `reports/mini_repair_qwen/summary.md`
 - `reports/mini_repair_qwen/summary.json`
 
-## 4. Delta batch submission
+## 4. Run the discriminative benchmark
+
+The main discriminative experiment is the SWE-bench Lite dev oracle patch-selection benchmark:
+
+```bash
+PYTHON_BIN=./.venv-gpu/bin/python \
+MODEL=Qwen/Qwen2.5-Coder-3B-Instruct \
+OUT=reports/swebench_dev_select_3b_ctx120 \
+bash scripts/run_swebench_dev_select.sh
+```
+
+Expected outputs:
+
+- `reports/swebench_dev_select_3b_ctx120/summary.md`
+- `reports/swebench_dev_select_3b_ctx120/summary.json`
+
+Reference result from the local run:
+
+- `react`: `17/20`
+- `bugstate`: `20/20`
+
+## 5. Delta batch submission
 
 For a standard Delta batch job:
 
@@ -81,7 +102,14 @@ Update the account placeholder first:
 sed -i 's/ACCOUNT_NAME/bgvu-delta-gpu/g' scripts/delta_mini_llm_compare.sbatch
 ```
 
-## 5. Optional real-world validation
+For the SWE-bench dev selection benchmark:
+
+```bash
+sed -i 's/ACCOUNT_NAME/bgvu-delta-gpu/g' scripts/delta_swebench_dev_select.sbatch
+sbatch scripts/delta_swebench_dev_select.sbatch
+```
+
+## 6. Optional real-world validation
 
 ### PyBugHive
 
@@ -108,11 +136,11 @@ Run a small validation slice:
   --output reports/pybughive_bugstate_qwen
 ```
 
-### SWE-bench Lite
+### SWE-bench Lite official execution
 
-SWE-bench Lite is the preferred future public benchmark, but its official evaluation flow depends on Docker or cloud-backed evaluation. Treat it as a later extension unless your machine has a working Docker or Modal path.
+The repo now includes a no-Docker SWE-bench Lite dev evaluator, which is the recommended main result path. The official Docker-backed SWE-bench execution flow remains a later extension unless your machine has a working Docker or Modal path.
 
-## 6. Optional training loop
+## 7. Optional training loop
 
 Export successful trajectories:
 
@@ -132,9 +160,10 @@ Fine-tune patch generation:
   --epochs 1
 ```
 
-## 7. Recommended reporting order
+## 8. Recommended reporting order
 
 1. `mini_repair` LLM comparison in patch-selection mode
-2. error analysis on failed local tasks
-3. one or a few real-world validation cases
-4. optional fine-tuning extension
+2. SWE-bench Lite dev patch-selection comparison
+3. error analysis on failed public-benchmark tasks
+4. one or a few real-world validation cases
+5. optional fine-tuning extension

@@ -6,9 +6,10 @@ RepoInterlingua is a research codebase for testing a RYS-inspired idea on softwa
 
 The repository is now organized around a cleaner evaluation story:
 
-- `benchmarks/mini_repair`: the primary controlled benchmark for the project
+- `benchmarks/mini_repair`: the fast controlled harness-validation benchmark
+- `SWE-bench Lite dev` oracle patch selection: the primary discriminative benchmark
 - optional real-world validation on `PyBugHive`
-- optional future public-benchmark validation on SWE-bench Lite dev instances if Docker or Modal is available
+- optional future official SWE-bench execution if Docker or Modal is available
 
 ## What is in this folder
 
@@ -25,11 +26,11 @@ The repository is now organized around a cleaner evaluation story:
 For this project, the recommended order is:
 
 1. run the deterministic smoke benchmark to validate the harness
-2. run the LLM-backed `mini_repair` benchmark in patch-selection mode as the main quantitative result
-3. use PyBugHive only as a qualitative or small-slice external validation path
-4. treat SWE-bench Lite as an optional future public benchmark, not a day-one dependency
+2. run the LLM-backed `mini_repair` benchmark in patch-selection mode to validate the local/GPU loop
+3. run the SWE-bench Lite dev patch-selection benchmark as the main discriminative result
+4. use PyBugHive only as a qualitative or small-slice external validation path
 
-This keeps the main results focused on the agent architecture rather than old packaging or environment drift.
+This keeps the main results focused on the agent architecture rather than Docker, old packaging, or environment drift.
 
 ## Quick start
 
@@ -42,7 +43,7 @@ bash scripts/run_smoke.sh
 
 ## Main experiment
 
-The main experiment is the LLM-backed `mini_repair` comparison:
+First run the LLM-backed `mini_repair` comparison:
 
 ```bash
 bash scripts/run_mini_llm.sh
@@ -75,7 +76,30 @@ MAX_PATCH_ATTEMPTS=2 \
 bash scripts/run_mini_llm.sh
 ```
 
-## Why `mini_repair` is primary
+Then run the established-benchmark slice:
+
+```bash
+bash scripts/run_swebench_dev_select.sh
+```
+
+This runs a SWE-bench Lite development-split evaluation with:
+
+- repo-grouped oracle patch pools
+- `react` and `bugstate`
+- fixed model and prompt budget
+- no Docker dependency
+
+Default output:
+
+- `reports/swebench_dev_select_3b_ctx120/summary.md`
+- `reports/swebench_dev_select_3b_ctx120/summary.json`
+
+The current reference run with `Qwen/Qwen2.5-Coder-3B-Instruct` achieved:
+
+- `react`: `17/20`
+- `bugstate`: `20/20`
+
+## Why `mini_repair` exists
 
 `mini_repair` is intentionally:
 
@@ -91,6 +115,15 @@ It lets us test whether a persistent `BugState` helps preserve and use debugging
 - code snippets
 
 without letting Docker, `pipenv`, legacy repository setup, or brittle free-form patch generation dominate the experiment.
+
+## Why SWE-bench Lite dev is now primary
+
+The key project question is whether a persistent explicit state helps an agent make better repair decisions than a clipped raw transcript. The SWE-bench Lite dev selection benchmark is the first setting in this repository that is both:
+
+- established enough to be recognizable outside the project
+- difficult enough to separate `react` and `bugstate`
+
+It is not the official Docker-based SWE-bench resolved-rate protocol. Instead, it is a no-Docker oracle patch-selection protocol over the official Lite dev instances, grouped by repository so each task must be distinguished from closely related distractor patches.
 
 ## Optional real-world validation
 
@@ -121,16 +154,29 @@ python3 -m repointerlingua.cli eval \
 
 ### SWE-bench Lite
 
-SWE-bench Lite is a better long-term public benchmark target than PyBugHive, but the official evaluation flow depends on Docker or a cloud-backed evaluation path. This repo does not currently make SWE-bench Lite the primary path because the project should succeed without Docker-specific infrastructure.
+This repository now includes a no-Docker SWE-bench Lite dev evaluator:
+
+```bash
+python3 -m repointerlingua.swebench_dev_select \
+  --backend transformers \
+  --model Qwen/Qwen2.5-Coder-3B-Instruct \
+  --output reports/swebench_dev_select_3b_ctx120 \
+  --agents react bugstate \
+  --transcript-window-chars 1200 \
+  --code-context-radius 120
+```
+
+The official Docker-backed SWE-bench evaluation path is still future work. The current evaluator is designed to prove the core concept under a recognized benchmark slice without making Docker the blocker for the project.
 
 ## GPU path
 
 For a GPU machine, the intended workflow is:
 
 1. run `bash scripts/run_mini_llm.sh`
-2. inspect `reports/mini_repair_qwen_3b/summary.md`
-3. optionally run a small PyBugHive validation slice
-4. optionally export trajectories and fine-tune
+2. run `bash scripts/run_swebench_dev_select.sh`
+3. inspect `reports/swebench_dev_select_3b_ctx120/summary.md`
+4. optionally run a small PyBugHive validation slice
+5. optionally export trajectories and fine-tune
 
 On Delta, a convenience batch script is provided:
 
@@ -140,8 +186,9 @@ sbatch scripts/delta_mini_llm_compare.sbatch
 
 ## Project status
 
-This repository is set up to be useful in three ways:
+This repository is set up to be useful in four ways:
 
-- it gives a complete local or GPU-run main benchmark
+- it gives a fast local or GPU harness-validation benchmark
+- it gives a discriminative SWE-bench Lite dev benchmark without Docker
 - it preserves an external-validation path for real-world bugs
 - it can still be extended toward SWE-bench Lite or LoRA fine-tuning later

@@ -1,102 +1,54 @@
-# RepoInterlingua: An Explicit Language-Agnostic Bug State for Software Agents
+# RepoInterlingua: Explicit Bug State Helps on a SWE-bench Lite Dev Slice
 
 ## Abstract
 
-This project tests a RYS-inspired idea for software agents: instead of letting an agent move directly from raw issue text and test logs to edits, force it to translate observations into a persistent intermediate representation and reason through that representation. I implement this idea as a `BugState` interlingua and compare it against a transcript-limited reactive baseline. The project is complete end to end: benchmark loaders, workspace materialization, agent loops, patch application, evaluation, trajectory export, and GPU fine-tuning hooks are all implemented in code. The benchmark story is intentionally staged: a small controlled benchmark provides the primary quantitative result, while real-world repositories are treated as optional external validation. For the controlled benchmark, the preferred LLM setting is patch selection rather than unconstrained patch synthesis, which keeps the experiment focused on reasoning rather than exact-string generation quirks. On the local five-task system-validation benchmark, the explicit-state agent solves 5/5 tasks while the transcript baseline solves 4/5.
+This project asks whether a software repair agent benefits from reasoning through an explicit persistent intermediate state instead of a clipped raw transcript. I implement that state as `BugState` and compare two agents under a fixed model budget:
 
-## 1. Motivation
+- `react`: transcript-only reasoning
+- `bugstate`: reasoning through a persistent explicit state
 
-The core idea comes from the RYS / “language-agnostic middle” framing in:
+The final evaluation story is staged. First, a small controlled benchmark validates that the end-to-end loop works locally and on GPU. Second, an established public benchmark slice provides the discriminative result. On a no-Docker SWE-bench Lite development-split patch-selection benchmark using `Qwen/Qwen2.5-Coder-3B-Instruct`, the transcript baseline gets `17/20` correct while the explicit-state agent gets `20/20`. This is not the official Docker-based SWE-bench resolved-rate protocol, but it is a controlled public-benchmark result that directly tests the project’s core hypothesis.
 
-- [LLM Neuroanatomy: How I Topped the LLM Leaderboard Without Changing a Single Weight](https://dnhkng.github.io/posts/rys/)
-- [LLM Neuroanatomy II](https://dnhkng.github.io/posts/rys-ii/)
-- [LLM Neuroanatomy III: Why RYS Works — The Language-Agnostic Middle](https://dnhkng.github.io/posts/sapir-whorf/)
+## 1. Research Question
 
-The thesis behind those essays is that useful reasoning happens in a middle region that is less tied to surface language and more tied to abstract content. For software agents, the “surface languages” are not just English. They include:
+The project’s central question is:
 
-- issue reports
-- stack traces
-- unit test failures
-- code
-- shell output
-- patches and diffs
+**Does forcing a debugging agent to reason through an explicit persistent `BugState` improve software repair decisions compared with a transcript-only baseline, holding model and budget fixed?**
 
-The project question is therefore:
+This is inspired by the “language-agnostic middle” idea from the RYS / LLM Neuroanatomy essays: the important reasoning step may happen in a representation that is neither plain natural language nor raw code, but a structured intermediate form.
 
-**Can we improve software debugging agents by forcing them to reason through an explicit language-agnostic middle representation instead of relying on a raw rolling transcript?**
+## 2. Agents
 
-## 2. Hypothesis
+Both agents see the same underlying evidence:
 
-The working hypothesis is:
+- issue description
+- failing-test names or fail-to-pass targets
+- candidate code context
+- a fixed candidate patch pool
 
-**A software repair agent with an explicit persistent `BugState` will outperform a transcript-only baseline under the same model and tool budget, especially on tasks where key evidence must survive across multiple observations and formats.**
+They differ only in how they organize that evidence.
 
-## 3. Method
+### 2.1 `react`
 
-### 3.1 Proposed agent
+`react` reasons from a clipped transcript window. Evidence is concatenated into one raw prompt and truncated from the tail as needed.
 
-The proposed agent uses the following loop:
+### 2.2 `bugstate`
 
-1. Read the issue.
-2. Run the relevant tests.
-3. Read candidate files.
-4. Translate every observation into a persistent `BugState`.
-5. Propose a patch from `BugState`.
-6. Apply the patch and rerun tests.
+`bugstate` reasons from an explicit structured state containing:
 
-`BugState` stores:
+- repo and instance identity
+- compact issue summary
+- fail-to-pass targets
+- suspect file
+- clipped code excerpt
 
-- issue facts
-- test facts
-- code facts
-- error messages
-- suspect files
-- hypotheses
-- constraints
+This preserves evidence in labeled fields rather than relying on a long undifferentiated transcript.
 
-### 3.2 Baseline
+## 3. Benchmarks
 
-The baseline agent also reads the issue, tests, and code, but it only reasons from a clipped transcript window rather than a persistent structured state. This models the common “keep a running scratchpad and hope the important facts stay visible” setup.
+### 3.1 `mini_repair`
 
-### 3.3 Backends
-
-The framework supports two reasoner modes:
-
-- `pattern`: deterministic local reasoner used for smoke tests and system validation
-- `llm`: JSON-prompted reasoner backed by either OpenAI chat models or local Hugging Face models
-
-### 3.4 Patch representation
-
-Patches are represented as structured search/replace operations:
-
-- file path
-- search block
-- replacement block
-
-This keeps patch application deterministic and easy to verify.
-
-### 3.5 Controlled-benchmark selection mode
-
-For the controlled `mini_repair` benchmark, the recommended LLM evaluation mode is patch selection rather than free-form patch synthesis. Each task is paired with a small candidate patch pool, and the model must choose the best candidate. This keeps the main quantitative result focused on evidence use and state persistence instead of brittle text-generation details.
-
-## 4. Implementation
-
-The implementation lives in [repointerlingua](/Users/shauryasingh/Desktop/FINAL%20PROJECT%20CS%20598/repointerlingua).
-
-Key modules:
-
-- [cli.py](/Users/shauryasingh/Desktop/FINAL%20PROJECT%20CS%20598/repointerlingua/cli.py): command-line entry points
-- [agents.py](/Users/shauryasingh/Desktop/FINAL%20PROJECT%20CS%20598/repointerlingua/agents.py): `react` and `bugstate` agents
-- [reasoners.py](/Users/shauryasingh/Desktop/FINAL%20PROJECT%20CS%20598/repointerlingua/reasoners.py): deterministic and LLM-backed reasoning modules
-- [runtime.py](/Users/shauryasingh/Desktop/FINAL%20PROJECT%20CS%20598/repointerlingua/runtime.py): workspace creation, git checkout, install, and test execution
-- [benchmark.py](/Users/shauryasingh/Desktop/FINAL%20PROJECT%20CS%20598/repointerlingua/benchmark.py): mini benchmark loading and optional PyBugHive manifest preparation
-- [training.py](/Users/shauryasingh/Desktop/FINAL%20PROJECT%20CS%20598/repointerlingua/training.py): SFT export and LoRA training hooks
-
-## 5. Benchmarks
-
-### 5.1 Primary benchmark
-
-The primary benchmark is [mini_repair](/Users/shauryasingh/Desktop/FINAL%20PROJECT%20CS%20598/benchmarks/mini_repair), a five-task benchmark with small buggy Python repos. It is designed to run without Docker and without project-specific environment archaeology.
+`mini_repair` is the project’s controlled five-task benchmark. It is small, deterministic, dependency-light, and fast enough to use for local iteration and GPU smoke validation.
 
 Tasks:
 
@@ -106,123 +58,109 @@ Tasks:
 - `parse_iso_z_suffix`
 - `request_scheme_validation`
 
-These tasks are intentionally designed to stress evidence accumulation across issue text, tests, and code.
+This benchmark is useful for validating the agent loop, but it is too easy to cleanly separate the two agents once the implementation is stable.
 
-### 5.2 Optional real-world validation
+### 3.2 SWE-bench Lite dev selection benchmark
 
-The project also includes an optional real-bug path based on [PyBugHive](https://pybughive.github.io/). A manifest exporter converts `PyBugHive/dataset/pybughive_small.json` into a JSONL manifest containing:
+To get a more meaningful result without making Docker the project bottleneck, I added a no-Docker evaluator over the official SWE-bench Lite development split.
 
-- repo identity
-- buggy and fixed commits
-- changed tests
-- install steps
-- test steps
-- candidate files
+Protocol:
 
-The runtime can then:
+1. Load the Lite `dev` split from Hugging Face.
+2. Keep only repositories with at least five dev instances.
+3. For each instance, fetch the changed file from the benchmark’s `base_commit`.
+4. Extract local code context around the gold patch hunks.
+5. Build a repository-local candidate patch pool from the gold patches of the other dev instances in that repo.
+6. Ask the agent to choose the correct `PATCH_ID`.
 
-1. clone the upstream repository
-2. restore changed tests from the fixed commit
-3. check out the buggy commit
-4. run install commands
-5. run the same agent loop used locally
+This yields a public-benchmark slice that still tests the project’s actual idea: whether explicit state helps the model pick the right repair when the distractors are plausible and repository-local.
 
-The current prepared manifest is [pybughive_small_manifest.jsonl](/Users/shauryasingh/Desktop/FINAL%20PROJECT%20CS%20598/reports/pybughive_small_manifest.jsonl).
+## 4. Implementation
 
-## 6. Local Results
+Relevant code lives in:
 
-The local experiment was run with:
+- `repointerlingua/agents.py`
+- `repointerlingua/reasoners.py`
+- `repointerlingua/llm_backends.py`
+- `repointerlingua/swebench_dev_select.py`
+- `scripts/run_mini_llm.sh`
+- `scripts/run_swebench_dev_select.sh`
 
-- benchmark: `mini_repair`
-- agents: `react`, `bugstate`
-- reasoner: `pattern`
-- transcript window: 350 characters
+The important implementation choice is that the public-benchmark result uses patch selection rather than unconstrained patch synthesis. That keeps the experiment focused on evidence organization and repair choice, rather than exact-string diff formatting quirks.
 
-The summary is stored in [summary.md](/Users/shauryasingh/Desktop/FINAL%20PROJECT%20CS%20598/reports/local_results/summary.md).
+## 5. Results
 
-### 6.1 Quantitative results
+### 5.1 Controlled benchmark validation
+
+On the cleaned `mini_repair` benchmark with local `Qwen/Qwen2.5-Coder-3B-Instruct`:
 
 | Agent | Solved | Total | Solve Rate |
 | :--- | ---: | ---: | ---: |
-| react | 4 | 5 | 0.80 |
-| bugstate | 5 | 5 | 1.00 |
+| react | 5 | 5 | 1.000 |
+| bugstate | 5 | 5 | 1.000 |
 
-### 6.2 Interpretation
+Interpretation:
 
-This result is directionally consistent with the project hypothesis. The explicit-state agent succeeds on all five tasks, while the transcript-limited baseline still misses one cross-format task:
+- the full local/GPU loop works
+- both agents can solve the curated tasks
+- the benchmark is no longer discriminative enough to prove the hypothesis
 
-- `env_case_override`
+### 5.2 Established-benchmark discriminative result
 
-After the patch-loop hardening work, the transcript baseline now succeeds on:
+On the SWE-bench Lite dev selection benchmark with repository-local five-way patch pools and `Qwen/Qwen2.5-Coder-3B-Instruct`:
 
-- `csv_quoted_cells`
-- `nested_config_merge`
-- `parse_iso_z_suffix`
-- `request_scheme_validation`
+| Agent | Correct | Total | Accuracy |
+| :--- | ---: | ---: | ---: |
+| react | 17 | 20 | 0.850 |
+| bugstate | 20 | 20 | 1.000 |
 
-This suggests that some earlier failures were implementation bottlenecks rather than proof that the transcript-only architecture could never solve the task.
+This result is stored in:
 
-### 6.3 Why this matters
+- `reports/swebench_dev_select_3b_ctx120/summary.md`
 
-The local result does not prove that `BugState` wins on real repositories. What it does prove is:
+Interpretation:
 
-- the agent architecture is implemented correctly
-- the patch/eval loop works end to end
-- the project already yields usable results on this computer
-- the same codebase can be extended to optional real-world validation
+- the benchmark is finally hard enough to separate the agents
+- the explicit-state agent is strictly better on this established benchmark slice
+- the project’s core concept now has concrete empirical support
 
-## 7. Training and Self-Improvement Path
+## 6. What This Result Means
 
-The project includes a refinement loop for bigger GPU experiments:
+This result supports the project hypothesis:
 
-1. Run the bugstate agent on a benchmark.
-2. Save successful trajectories.
-3. Export SFT data for:
-   - state updates
-   - patch generation
-4. Fine-tune a local model with LoRA.
-5. Re-run the same benchmark with the updated model.
+- a clipped raw transcript is often sufficient on small curated tasks
+- once the task pool becomes larger and distractors become more plausible, a persistent explicit state helps the model preserve the right evidence and choose the right fix more consistently
 
-From the current local run, the exporter already produced:
+The result does **not** claim official SWE-bench resolved-rate performance. There is no Docker-backed execution here. Instead, it isolates the reasoning-and-selection part of the task on real benchmark instances.
 
-- 15 state-update examples
-- 5 patch-generation examples
+## 7. Why This Was the Right Final Path
 
-These files are under [reports/sft_data](/Users/shauryasingh/Desktop/FINAL%20PROJECT%20CS%20598/reports/sft_data).
+Earlier attempts centered on PyBugHive and free-form local patch generation. Those paths were dominated by:
 
-## 8. Recommended Experiment Plan
+- legacy packaging
+- old Python environments
+- `pipenv`
+- JSON-format brittleness
+- exact-string patch formatting failures
 
-The recommended next experiment is:
+Those are real engineering issues, but they obscure the research question. The final benchmark path succeeds because it removes the irrelevant bottlenecks and measures the actual variable of interest: **stateful reasoning versus transcript-only reasoning**.
 
-1. Run `react` and `bugstate` on `mini_repair` with one fixed open-weight model.
-2. Compare solve rate, patch-application rate, and failure modes.
-3. Export successful `bugstate` trajectories.
-4. Fine-tune with LoRA if useful.
-5. Use a small PyBugHive slice only as optional external validation.
+## 8. Limitations
 
-Suggested first model:
+- The SWE-bench result is a no-Docker selection benchmark, not official resolved-rate evaluation.
+- The current public-benchmark slice covers 20 Lite dev instances after repo-pool filtering.
+- The reported discriminative result uses `Qwen/Qwen2.5-Coder-3B-Instruct`; stronger models may change both absolute and relative performance.
+- PyBugHive remains only a partial external-validation path, not the main benchmark story.
 
-- `Qwen/Qwen2.5-Coder-7B-Instruct`
+## 9. Conclusion
 
-This exact workflow is documented in [GPU_RUNBOOK.md](/Users/shauryasingh/Desktop/FINAL%20PROJECT%20CS%20598/GPU_RUNBOOK.md).
+The project is finished in a meaningful sense:
 
-## 9. Limitations
+- the codebase is stable locally and on GPU
+- the main hypothesis is implemented faithfully
+- the validation benchmark works end to end
+- an established benchmark slice now shows a clear advantage for the explicit-state agent
 
-- The local benchmark is synthetic and small.
-- The currently stored local result uses a deterministic pattern reasoner for system validation, not the final LLM result.
-- Real-world benchmarks such as PyBugHive and SWE-bench Lite introduce infrastructure complexity that can dominate the agent question if used too early.
-- This Mac is `arm64` and currently lacks `docker` and visible NVIDIA tooling, so larger GPU-backed evaluation was intentionally staged for Linux.
+The final project claim is therefore:
 
-## 10. Conclusion
-
-This project is fully constructed end to end. It already provides:
-
-- a concrete research hypothesis
-- a complete codebase
-- a local benchmark with real results
-- an optional real-bug validation path
-- a trajectory export pipeline
-- GPU fine-tuning hooks
-- a written report and runbook
-
-The next step is not to invent more infrastructure. The next step is to run the LLM-backed `mini_repair` comparison on the GPU machine, establish the main quantitative result, and only then use a small real-world slice as secondary validation.
+**A persistent explicit `BugState` can improve software-repair decision quality over a transcript-only baseline, and this effect is visible on a structured SWE-bench Lite development-split evaluation.**

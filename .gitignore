@@ -18,6 +18,8 @@ reports/generated_pybughive_issues/
 reports/pybughive_runs/
 reports/sft_data/
 reports/lora_patch_model/
+reports/mini_repair_qwen_*/
+reports/swebench_dev_select_*/
 PyBugHive/
 software-agents-course/
 slurm-*.out
