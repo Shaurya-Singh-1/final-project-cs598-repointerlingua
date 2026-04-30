@@ -10,7 +10,7 @@ from repointerlingua.reasoners import JsonPromptReasoner, PatternReasoner
 from repointerlingua.reporting import summarize_results, write_summary
 from repointerlingua.schemas import EpisodeResult
 from repointerlingua.training import export_sft_data, train_lora
-from repointerlingua.utils import ensure_dir, repo_root
+from repointerlingua.utils import ensure_dir, repo_root, write_json
 
 
 def _build_reasoner(args):
@@ -29,12 +29,22 @@ def _build_reasoner(args):
 
 def _load_tasks(args):
     if args.benchmark == "mini_repair":
-        return load_mini_repair_tasks()
-    if args.benchmark == "pybughive":
+        tasks = load_mini_repair_tasks()
+    elif args.benchmark == "pybughive":
         if not args.manifest:
             raise ValueError("--manifest is required for the pybughive benchmark.")
-        return load_pybughive_tasks(Path(args.manifest))
-    raise ValueError(f"Unsupported benchmark: {args.benchmark}")
+        tasks = load_pybughive_tasks(Path(args.manifest))
+    else:
+        raise ValueError(f"Unsupported benchmark: {args.benchmark}")
+
+    if getattr(args, "task_id", None):
+        wanted = set(args.task_id)
+        tasks = [task for task in tasks if task.task_id in wanted]
+
+    if getattr(args, "limit", None):
+        tasks = tasks[: args.limit]
+
+    return tasks
 
 
 def _make_failure_result(args, agent_name: str, task, exc: Exception) -> EpisodeResult:
@@ -56,6 +66,11 @@ def _make_failure_result(args, agent_name: str, task, exc: Exception) -> Episode
     )
 
 
+def _persist_failure_result(run_dir: Path, result: EpisodeResult) -> None:
+    ensure_dir(run_dir)
+    write_json(run_dir / "episode.json", result.to_dict())
+
+
 def cmd_list_tasks(_args):
     tasks = load_mini_repair_tasks()
     for task in tasks:
@@ -74,6 +89,8 @@ def cmd_eval(args):
             results.append(agent.run(task, run_dir))
         except Exception as exc:
             results.append(_make_failure_result(args, args.agent, task, exc))
+            _persist_failure_result(run_dir, results[-1])
+            print(f"{args.agent} on {task.task_id}: error={exc}")
         print(f"{args.agent} on {task.task_id}: solved={results[-1].solved}")
     summary = summarize_results(results)
     write_summary(summary, output_dir / args.agent)
@@ -93,6 +110,8 @@ def cmd_compare(args):
                 result = agent.run(task, run_dir)
             except Exception as exc:
                 result = _make_failure_result(args, agent_name, task, exc)
+                _persist_failure_result(run_dir, result)
+                print(f"{agent_name} on {task.task_id}: error={exc}")
             results.append(result)
             print(f"{agent_name} on {task.task_id}: solved={result.solved}")
 
@@ -131,6 +150,8 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument("--output", required=True)
     eval_parser.add_argument("--transcript-window-chars", type=int, default=350)
     eval_parser.add_argument("--manifest")
+    eval_parser.add_argument("--task-id", action="append")
+    eval_parser.add_argument("--limit", type=int)
 
     compare_parser = subparsers.add_parser("compare")
     compare_parser.add_argument("--benchmark", default="mini_repair")
@@ -141,6 +162,8 @@ def build_parser() -> argparse.ArgumentParser:
     compare_parser.add_argument("--output", required=True)
     compare_parser.add_argument("--transcript-window-chars", type=int, default=350)
     compare_parser.add_argument("--manifest")
+    compare_parser.add_argument("--task-id", action="append")
+    compare_parser.add_argument("--limit", type=int)
 
     manifest_parser = subparsers.add_parser("prepare-pybughive")
     manifest_parser.add_argument("--dataset", required=True)
