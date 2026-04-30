@@ -93,7 +93,45 @@ Interpretation:
 Callout:
 - This is the core success of the project.
 
-## Slide 7: Future Plan
+Also include one short supporting table or side panel with:
+- `1.5B react`: `15/20`
+- `1.5B bugstate`: `14/20`
+- `3B react`: `17/20`
+- `3B bugstate`: `20/20`
+
+Presenter note:
+- Emphasize that the stronger model reveals the clearest separation, which suggests the state representation becomes more useful as the model becomes more capable.
+
+## Slide 7: Additional Results / Ablations
+
+Main points:
+- We did not rely on one single run.
+- We tested transcript budget, state formatting, model size, and per-repo behavior.
+
+Include these exact results:
+
+Transcript window ablation for `react` on the SWE-bench Lite dev slice with `1.5B`:
+- window `250`: `11/20`
+- window `400`: `14/20`
+- window `800`: `16/20`
+- window `1200`: `15/20`
+
+State-format ablation for `bugstate` on the SWE-bench Lite dev slice with `1.5B`:
+- initial weak state format: `9/20`
+- improved structured state: `14/20`
+
+Per-repo breakdown for the final `3B` run:
+- `pvlib/pvlib-python`: `react 5/5`, `bugstate 5/5`
+- `pydicom/pydicom`: `react 4/5`, `bugstate 5/5`
+- `pylint-dev/astroid`: `react 4/5`, `bugstate 5/5`
+- `sqlfluff/sqlfluff`: `react 4/5`, `bugstate 5/5`
+
+Interpretation:
+- transcript-only reasoning is sensitive to prompt budget
+- the form of the explicit state matters
+- the final gain is spread across multiple repositories, not one lucky slice
+
+## Slide 8: Future Plan
 
 Title:
 - Going Deeper Into Neural Middle Layers
@@ -108,7 +146,7 @@ Main points:
 Presenter note:
 - Emphasize that this project validates the agent-level version first, which creates a platform for deeper neural-middle-layer work later.
 
-## Slide 8: Conclusion
+## Slide 9: Conclusion
 
 Main points:
 - RYS suggests that abstract middle representations matter.
@@ -128,7 +166,8 @@ Suggested visuals:
 - Slide 4: side-by-side comparison: `react` transcript vs `bugstate` structured state
 - Slide 5: pipeline diagram from issue/tests/code -> state -> patch choice
 - Slide 6: bold comparison table with `17/20` vs `20/20`
-- Slide 7: roadmap arrow from symbolic middle -> learned middle -> neural middle
+- Slide 7: compact ablation charts for transcript window and state-format improvement
+- Slide 8: roadmap arrow from symbolic middle -> learned middle -> neural middle
 
 ## Accuracy constraints
 
