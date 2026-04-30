@@ -9,7 +9,19 @@ This project asks whether a software repair agent benefits from reasoning throug
 
 The final evaluation story is staged. First, a small controlled benchmark validates that the end-to-end loop works locally and on GPU. Second, an established public benchmark slice provides the discriminative result. On a no-Docker SWE-bench Lite development-split patch-selection benchmark using `Qwen/Qwen2.5-Coder-3B-Instruct`, the transcript baseline gets `17/20` correct while the explicit-state agent gets `20/20`. This is not the official Docker-based SWE-bench resolved-rate protocol, but it is a controlled public-benchmark result that directly tests the project’s core hypothesis.
 
-## 1. Research Question
+## 1. RYS Background
+
+This project is motivated by the RYS / LLM Neuroanatomy line of work by David Noel Ng. The central idea is that transformer models appear to have a rough three-stage functional anatomy:
+
+- early layers that normalize and encode surface form
+- middle layers that carry more abstract, format-agnostic reasoning
+- late layers that decode back into output tokens
+
+RYS itself is not a software-repair method. It is a model-level intervention and interpretability claim: repeating a block of middle layers, without ordinary fine-tuning, was reported to improve model performance and motivated the hypothesis that the middle layers are unusually important for reasoning.
+
+For this project, the important takeaway is not “repeat layers.” The important takeaway is the idea of a **language-agnostic middle**: a representation that is less tied to raw surface form and more tied to task-relevant meaning.
+
+## 2. Research Question
 
 The project’s central question is:
 
@@ -17,7 +29,25 @@ The project’s central question is:
 
 This is inspired by the “language-agnostic middle” idea from the RYS / LLM Neuroanatomy essays: the important reasoning step may happen in a representation that is neither plain natural language nor raw code, but a structured intermediate form.
 
-## 2. Agents
+## 3. Derived Project Idea
+
+We operationalize the RYS intuition at the **agent level** rather than the transformer-weight level.
+
+Instead of letting an agent move directly from:
+
+- issue text
+- failing tests
+- code snippets
+- raw transcript history
+
+to a repair choice, we force it to reason through an explicit intermediate representation called `BugState`.
+
+This makes `BugState` an external analogue of the “middle layer” idea:
+
+- `react` stays close to surface form
+- `bugstate` translates evidence into a persistent structured state before deciding
+
+## 4. Agents
 
 Both agents see the same underlying evidence:
 
@@ -28,11 +58,11 @@ Both agents see the same underlying evidence:
 
 They differ only in how they organize that evidence.
 
-### 2.1 `react`
+### `react`
 
 `react` reasons from a clipped transcript window. Evidence is concatenated into one raw prompt and truncated from the tail as needed.
 
-### 2.2 `bugstate`
+### `bugstate`
 
 `bugstate` reasons from an explicit structured state containing:
 
@@ -44,9 +74,9 @@ They differ only in how they organize that evidence.
 
 This preserves evidence in labeled fields rather than relying on a long undifferentiated transcript.
 
-## 3. Benchmarks
+## 5. Benchmarks
 
-### 3.1 `mini_repair`
+### `mini_repair`
 
 `mini_repair` is the project’s controlled five-task benchmark. It is small, deterministic, dependency-light, and fast enough to use for local iteration and GPU smoke validation.
 
@@ -60,7 +90,7 @@ Tasks:
 
 This benchmark is useful for validating the agent loop, but it is too easy to cleanly separate the two agents once the implementation is stable.
 
-### 3.2 SWE-bench Lite dev selection benchmark
+### SWE-bench Lite dev selection benchmark
 
 To get a more meaningful result without making Docker the project bottleneck, I added a no-Docker evaluator over the official SWE-bench Lite development split.
 
@@ -75,7 +105,7 @@ Protocol:
 
 This yields a public-benchmark slice that still tests the project’s actual idea: whether explicit state helps the model pick the right repair when the distractors are plausible and repository-local.
 
-## 4. Implementation
+## 6. Implementation
 
 Relevant code lives in:
 
@@ -88,9 +118,9 @@ Relevant code lives in:
 
 The important implementation choice is that the public-benchmark result uses patch selection rather than unconstrained patch synthesis. That keeps the experiment focused on evidence organization and repair choice, rather than exact-string diff formatting quirks.
 
-## 5. Results
+## 7. Results
 
-### 5.1 Controlled benchmark validation
+### Controlled benchmark validation
 
 On the cleaned `mini_repair` benchmark with local `Qwen/Qwen2.5-Coder-3B-Instruct`:
 
@@ -105,7 +135,7 @@ Interpretation:
 - both agents can solve the curated tasks
 - the benchmark is no longer discriminative enough to prove the hypothesis
 
-### 5.2 Established-benchmark discriminative result
+### Established-benchmark discriminative result
 
 On the SWE-bench Lite dev selection benchmark with repository-local five-way patch pools and `Qwen/Qwen2.5-Coder-3B-Instruct`:
 
@@ -124,7 +154,7 @@ Interpretation:
 - the explicit-state agent is strictly better on this established benchmark slice
 - the project’s core concept now has concrete empirical support
 
-## 6. What This Result Means
+## 8. What This Result Means
 
 This result supports the project hypothesis:
 
@@ -133,7 +163,7 @@ This result supports the project hypothesis:
 
 The result does **not** claim official SWE-bench resolved-rate performance. There is no Docker-backed execution here. Instead, it isolates the reasoning-and-selection part of the task on real benchmark instances.
 
-## 7. Why This Was the Right Final Path
+## 9. Why This Was the Right Final Path
 
 Earlier attempts centered on PyBugHive and free-form local patch generation. Those paths were dominated by:
 
@@ -145,14 +175,25 @@ Earlier attempts centered on PyBugHive and free-form local patch generation. Tho
 
 Those are real engineering issues, but they obscure the research question. The final benchmark path succeeds because it removes the irrelevant bottlenecks and measures the actual variable of interest: **stateful reasoning versus transcript-only reasoning**.
 
-## 8. Limitations
+## 10. Limitations
 
 - The SWE-bench result is a no-Docker selection benchmark, not official resolved-rate evaluation.
 - The current public-benchmark slice covers 20 Lite dev instances after repo-pool filtering.
 - The reported discriminative result uses `Qwen/Qwen2.5-Coder-3B-Instruct`; stronger models may change both absolute and relative performance.
 - PyBugHive remains only a partial external-validation path, not the main benchmark story.
 
-## 9. Conclusion
+## 11. Future Work
+
+The most natural extension is to move closer to a literal RYS-style middle representation:
+
+- probe or summarize hidden states from middle transformer layers
+- learn a latent bug state instead of hand-designed fields
+- compare symbolic `BugState` against learned latent state tokens
+- connect patch selection to full patch generation and official Docker-based SWE-bench execution
+
+In other words, this project validates the **agent-level** middle-layer idea first. A follow-up project could investigate whether a true neural middle-layer representation can do even better.
+
+## 12. Conclusion
 
 The project is finished in a meaningful sense:
 
