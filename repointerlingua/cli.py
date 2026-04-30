@@ -4,7 +4,12 @@ import argparse
 from pathlib import Path
 
 from repointerlingua.agents import build_agent
-from repointerlingua.benchmark import load_mini_repair_tasks, load_pybughive_tasks, prepare_pybughive_manifest
+from repointerlingua.benchmark import (
+    attach_mini_patch_choices,
+    load_mini_repair_tasks,
+    load_pybughive_tasks,
+    prepare_pybughive_manifest,
+)
 from repointerlingua.llm_backends import OpenAIBackend, TransformersBackend
 from repointerlingua.reasoners import JsonPromptReasoner, PatternReasoner
 from repointerlingua.reporting import summarize_results, write_summary
@@ -30,6 +35,8 @@ def _build_reasoner(args):
 def _load_tasks(args):
     if args.benchmark == "mini_repair":
         tasks = load_mini_repair_tasks()
+        if getattr(args, "repair_mode", "synthesize") == "select":
+            tasks = attach_mini_patch_choices(tasks)
     elif args.benchmark == "pybughive":
         if not args.manifest:
             raise ValueError("--manifest is required for the pybughive benchmark.")
@@ -85,6 +92,7 @@ def cmd_eval(args):
         reasoner,
         transcript_window_chars=args.transcript_window_chars,
         max_patch_attempts=args.max_patch_attempts,
+        repair_mode=args.repair_mode,
     )
     output_dir = ensure_dir(Path(args.output))
     results = []
@@ -113,6 +121,7 @@ def cmd_compare(args):
             reasoner,
             transcript_window_chars=args.transcript_window_chars,
             max_patch_attempts=args.max_patch_attempts,
+            repair_mode=args.repair_mode,
         )
         for task in tasks:
             run_dir = output_dir / agent_name / task.task_id
@@ -160,6 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument("--output", required=True)
     eval_parser.add_argument("--transcript-window-chars", type=int, default=1200)
     eval_parser.add_argument("--max-patch-attempts", type=int, default=2)
+    eval_parser.add_argument("--repair-mode", default="synthesize", choices=["synthesize", "select"])
     eval_parser.add_argument("--manifest")
     eval_parser.add_argument("--task-id", action="append")
     eval_parser.add_argument("--limit", type=int)
@@ -173,6 +183,7 @@ def build_parser() -> argparse.ArgumentParser:
     compare_parser.add_argument("--output", required=True)
     compare_parser.add_argument("--transcript-window-chars", type=int, default=1200)
     compare_parser.add_argument("--max-patch-attempts", type=int, default=2)
+    compare_parser.add_argument("--repair-mode", default="synthesize", choices=["synthesize", "select"])
     compare_parser.add_argument("--manifest")
     compare_parser.add_argument("--task-id", action="append")
     compare_parser.add_argument("--limit", type=int)

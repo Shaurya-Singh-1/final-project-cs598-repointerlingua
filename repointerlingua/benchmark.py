@@ -32,6 +32,25 @@ def load_mini_repair_tasks() -> list[TaskSpec]:
     return tasks
 
 
+def attach_mini_patch_choices(tasks: list[TaskSpec]) -> list[TaskSpec]:
+    patch_pool = []
+    for task in tasks:
+        for index, patch in enumerate(task.reference_patch):
+            patch_pool.append(
+                {
+                    "patch_id": f"{task.task_id}:{index}",
+                    "source_task": task.task_id,
+                    "path": patch.path,
+                    "search": patch.search,
+                    "replace": patch.replace,
+                }
+            )
+
+    for task in tasks:
+        task.metadata["patch_choices"] = patch_pool
+    return tasks
+
+
 def load_pybughive_manifest(path: Path) -> list[dict]:
     rows = []
     with path.open("r", encoding="utf-8") as handle:

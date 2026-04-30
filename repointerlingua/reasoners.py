@@ -53,6 +53,21 @@ def _coerce_string_list(values) -> list[str]:
     return normalized[:8]
 
 
+def _truncate_patch_choices(patch_choices: list[dict], limit: int = 12) -> list[dict]:
+    normalized = []
+    for choice in patch_choices[:limit]:
+        normalized.append(
+            {
+                "patch_id": choice["patch_id"],
+                "source_task": choice["source_task"],
+                "path": choice["path"],
+                "search": _truncate_for_prompt(choice["search"], 240),
+                "replace": _truncate_for_prompt(choice["replace"], 240),
+            }
+        )
+    return normalized
+
+
 def _check_clues(text: str, clues: list[str]) -> bool:
     lower = text.lower()
     for clue in clues:
@@ -125,6 +140,21 @@ class PatternReasoner:
                 selected.append(line)
         return "\n".join(selected[:5])
 
+    def select_patch_from_state(
+        self,
+        task: TaskSpec,
+        state: BugState,
+        patch_choices: list[dict],
+    ) -> list[PatchOperation]:
+        if _check_clues(state.combined_text(), task.bugstate_clues):
+            return task.reference_patch
+        return []
+
+    def select_patch_from_transcript(self, task: TaskSpec, transcript: str, patch_choices: list[dict]) -> list[PatchOperation]:
+        if _check_clues(transcript, task.react_clues):
+            return task.reference_patch
+        return []
+
 
 class JsonPromptReasoner:
     name = "llm"
@@ -161,6 +191,20 @@ class JsonPromptReasoner:
             return payload
 
         raise ValueError(f"Could not find JSON object in model output: {text}")
+
+    def _extract_choice(self, text: str, valid_ids: set[str]) -> str | None:
+        normalized = text.strip()
+        if not normalized:
+            return None
+        for patch_id in valid_ids:
+            if patch_id in normalized:
+                return patch_id
+        choice_match = re.search(r'"patch_id"\s*:\s*"([^"]+)"', normalized)
+        if choice_match:
+            patch_id = choice_match.group(1)
+            if patch_id in valid_ids:
+                return patch_id
+        return None
 
     def update_bug_state(self, task: TaskSpec, state: BugState, observation: Observation) -> BugState:
         observation_content = _truncate_for_prompt(observation.content, limit=1200)
@@ -301,3 +345,78 @@ class JsonPromptReasoner:
                 )
             )
         return patches
+
+    def select_patch_from_state(
+        self,
+        task: TaskSpec,
+        state: BugState,
+        patch_choices: list[dict],
+    ) -> list[PatchOperation]:
+        truncated_choices = _truncate_patch_choices(patch_choices)
+        valid_ids = {choice["patch_id"] for choice in truncated_choices}
+        messages = [
+            Message(
+                role="system",
+                content=(
+                    "You are a software repair agent. Choose the single best candidate patch. "
+                    "Return only one line in the form PATCH_ID: <id>. "
+                    "If no candidate is appropriate, return PATCH_ID: NONE."
+                ),
+            ),
+            Message(
+                role="user",
+                content=(
+                    f"Task title: {task.title}\n\n"
+                    f"BugState:\n{json.dumps(state.to_dict(), indent=2)}\n\n"
+                    f"Candidate patches:\n{json.dumps(truncated_choices, indent=2)}\n\n"
+                    "Pick the best patch id."
+                ),
+            ),
+        ]
+        raw = self.backend.generate(messages)
+        patch_id = self._extract_choice(raw, valid_ids)
+        if patch_id is None:
+            return []
+        selected = next(choice for choice in truncated_choices if choice["patch_id"] == patch_id)
+        return [
+            PatchOperation(
+                path=selected["path"],
+                search=selected["search"],
+                replace=selected["replace"],
+            )
+        ]
+
+    def select_patch_from_transcript(self, task: TaskSpec, transcript: str, patch_choices: list[dict]) -> list[PatchOperation]:
+        truncated_choices = _truncate_patch_choices(patch_choices)
+        valid_ids = {choice["patch_id"] for choice in truncated_choices}
+        messages = [
+            Message(
+                role="system",
+                content=(
+                    "You are a software repair agent. Choose the single best candidate patch. "
+                    "Return only one line in the form PATCH_ID: <id>. "
+                    "If no candidate is appropriate, return PATCH_ID: NONE."
+                ),
+            ),
+            Message(
+                role="user",
+                content=(
+                    f"Task title: {task.title}\n\n"
+                    f"Transcript:\n{transcript}\n\n"
+                    f"Candidate patches:\n{json.dumps(truncated_choices, indent=2)}\n\n"
+                    "Pick the best patch id."
+                ),
+            ),
+        ]
+        raw = self.backend.generate(messages)
+        patch_id = self._extract_choice(raw, valid_ids)
+        if patch_id is None:
+            return []
+        selected = next(choice for choice in truncated_choices if choice["patch_id"] == patch_id)
+        return [
+            PatchOperation(
+                path=selected["path"],
+                search=selected["search"],
+                replace=selected["replace"],
+            )
+        ]

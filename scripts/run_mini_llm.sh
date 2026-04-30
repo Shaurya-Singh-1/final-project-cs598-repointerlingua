@@ -16,6 +16,7 @@ python3 -m repointerlingua.cli compare \
   --backend transformers \
   --model "$MODEL" \
   --output "$OUT" \
+  --repair-mode select \
   --transcript-window-chars "$TRANSCRIPT_WINDOW_CHARS" \
   --max-patch-attempts "$MAX_PATCH_ATTEMPTS"
 

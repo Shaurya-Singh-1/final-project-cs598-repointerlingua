@@ -51,6 +51,7 @@ The main GPU experiment is the LLM-backed `mini_repair` comparison:
   --backend transformers \
   --model Qwen/Qwen2.5-Coder-7B-Instruct \
   --output reports/mini_repair_qwen \
+  --repair-mode select \
   --transcript-window-chars 1200 \
   --max-patch-attempts 2
 ```
@@ -133,7 +134,7 @@ Fine-tune patch generation:
 
 ## 7. Recommended reporting order
 
-1. `mini_repair` LLM comparison
+1. `mini_repair` LLM comparison in patch-selection mode
 2. error analysis on failed local tasks
 3. one or a few real-world validation cases
 4. optional fine-tuning extension

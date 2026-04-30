@@ -10,11 +10,19 @@ from repointerlingua.utils import clamp_tail, ensure_dir, write_json
 
 
 class BaseAgent:
-    def __init__(self, name: str, reasoner, transcript_window_chars: int = 900, max_patch_attempts: int = 2):
+    def __init__(
+        self,
+        name: str,
+        reasoner,
+        transcript_window_chars: int = 900,
+        max_patch_attempts: int = 2,
+        repair_mode: str = "synthesize",
+    ):
         self.name = name
         self.reasoner = reasoner
         self.transcript_window_chars = transcript_window_chars
         self.max_patch_attempts = max_patch_attempts
+        self.repair_mode = repair_mode
 
     def _persist_result(self, run_dir: Path, result: EpisodeResult) -> None:
         ensure_dir(run_dir)
@@ -39,12 +47,19 @@ class BaseAgent:
 
 
 class ReactiveTranscriptAgent(BaseAgent):
-    def __init__(self, reasoner, transcript_window_chars: int = 900, max_patch_attempts: int = 2):
+    def __init__(
+        self,
+        reasoner,
+        transcript_window_chars: int = 900,
+        max_patch_attempts: int = 2,
+        repair_mode: str = "synthesize",
+    ):
         super().__init__(
             "react",
             reasoner,
             transcript_window_chars=transcript_window_chars,
             max_patch_attempts=max_patch_attempts,
+            repair_mode=repair_mode,
         )
 
     def run(self, task: TaskSpec, run_dir: Path) -> EpisodeResult:
@@ -75,7 +90,14 @@ class ReactiveTranscriptAgent(BaseAgent):
 
         for attempt in range(1, self.max_patch_attempts + 1):
             clipped = clamp_tail("\n\n".join(transcript), self.transcript_window_chars)
-            patch_set = self.reasoner.propose_patch_from_transcript(task, clipped)
+            if self.repair_mode == "select":
+                patch_set = self.reasoner.select_patch_from_transcript(
+                    task,
+                    clipped,
+                    task.metadata.get("patch_choices", []),
+                )
+            else:
+                patch_set = self.reasoner.propose_patch_from_transcript(task, clipped)
             patch_set = self._filter_patch_set(patch_set, code_observations, notes)
 
             if not patch_set:
@@ -123,12 +145,19 @@ class ReactiveTranscriptAgent(BaseAgent):
 
 
 class BugStateAgent(BaseAgent):
-    def __init__(self, reasoner, transcript_window_chars: int = 900, max_patch_attempts: int = 2):
+    def __init__(
+        self,
+        reasoner,
+        transcript_window_chars: int = 900,
+        max_patch_attempts: int = 2,
+        repair_mode: str = "synthesize",
+    ):
         super().__init__(
             "bugstate",
             reasoner,
             transcript_window_chars=transcript_window_chars,
             max_patch_attempts=max_patch_attempts,
+            repair_mode=repair_mode,
         )
 
     def run(self, task: TaskSpec, run_dir: Path) -> EpisodeResult:
@@ -162,7 +191,14 @@ class BugStateAgent(BaseAgent):
         patch_set = []
 
         for attempt in range(1, self.max_patch_attempts + 1):
-            patch_set = self.reasoner.propose_patch_from_state(task, state, code_observations)
+            if self.repair_mode == "select":
+                patch_set = self.reasoner.select_patch_from_state(
+                    task,
+                    state,
+                    task.metadata.get("patch_choices", []),
+                )
+            else:
+                patch_set = self.reasoner.propose_patch_from_state(task, state, code_observations)
             patch_set = self._filter_patch_set(patch_set, code_observations, notes)
 
             if not patch_set:
@@ -210,17 +246,25 @@ class BugStateAgent(BaseAgent):
         return result
 
 
-def build_agent(agent_name: str, reasoner, transcript_window_chars: int = 900, max_patch_attempts: int = 2):
+def build_agent(
+    agent_name: str,
+    reasoner,
+    transcript_window_chars: int = 900,
+    max_patch_attempts: int = 2,
+    repair_mode: str = "synthesize",
+):
     if agent_name == "react":
         return ReactiveTranscriptAgent(
             reasoner,
             transcript_window_chars=transcript_window_chars,
             max_patch_attempts=max_patch_attempts,
+            repair_mode=repair_mode,
         )
     if agent_name == "bugstate":
         return BugStateAgent(
             reasoner,
             transcript_window_chars=transcript_window_chars,
             max_patch_attempts=max_patch_attempts,
+            repair_mode=repair_mode,
         )
     raise ValueError(f"Unknown agent: {agent_name}")

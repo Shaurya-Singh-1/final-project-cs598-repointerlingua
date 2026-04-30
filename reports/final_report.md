@@ -2,7 +2,7 @@
 
 ## Abstract
 
-This project tests a RYS-inspired idea for software agents: instead of letting an agent move directly from raw issue text and test logs to edits, force it to translate observations into a persistent intermediate representation and reason through that representation. I implement this idea as a `BugState` interlingua and compare it against a transcript-limited reactive baseline. The project is complete end to end: benchmark loaders, workspace materialization, agent loops, patch application, evaluation, trajectory export, and GPU fine-tuning hooks are all implemented in code. The benchmark story is intentionally staged: a small controlled benchmark provides the primary quantitative result, while real-world repositories are treated as optional external validation. On the local five-task system-validation benchmark, the explicit-state agent solves 5/5 tasks while the transcript baseline solves 2/5.
+This project tests a RYS-inspired idea for software agents: instead of letting an agent move directly from raw issue text and test logs to edits, force it to translate observations into a persistent intermediate representation and reason through that representation. I implement this idea as a `BugState` interlingua and compare it against a transcript-limited reactive baseline. The project is complete end to end: benchmark loaders, workspace materialization, agent loops, patch application, evaluation, trajectory export, and GPU fine-tuning hooks are all implemented in code. The benchmark story is intentionally staged: a small controlled benchmark provides the primary quantitative result, while real-world repositories are treated as optional external validation. For the controlled benchmark, the preferred LLM setting is patch selection rather than unconstrained patch synthesis, which keeps the experiment focused on reasoning rather than exact-string generation quirks. On the local five-task system-validation benchmark, the explicit-state agent solves 5/5 tasks while the transcript baseline solves 4/5.
 
 ## 1. Motivation
 
@@ -74,6 +74,10 @@ Patches are represented as structured search/replace operations:
 - replacement block
 
 This keeps patch application deterministic and easy to verify.
+
+### 3.5 Controlled-benchmark selection mode
+
+For the controlled `mini_repair` benchmark, the recommended LLM evaluation mode is patch selection rather than free-form patch synthesis. Each task is paired with a small candidate patch pool, and the model must choose the best candidate. This keeps the main quantitative result focused on evidence use and state persistence instead of brittle text-generation details.
 
 ## 4. Implementation
 
@@ -205,8 +209,7 @@ This exact workflow is documented in [GPU_RUNBOOK.md](/Users/shauryasingh/Deskto
 ## 9. Limitations
 
 - The local benchmark is synthetic and small.
-- The local result uses a deterministic pattern reasoner for system validation, not a learned model.
-- The local result currently uses the deterministic `pattern` reasoner for system validation, not the final LLM result.
+- The currently stored local result uses a deterministic pattern reasoner for system validation, not the final LLM result.
 - Real-world benchmarks such as PyBugHive and SWE-bench Lite introduce infrastructure complexity that can dominate the agent question if used too early.
 - This Mac is `arm64` and currently lacks `docker` and visible NVIDIA tooling, so larger GPU-backed evaluation was intentionally staged for Linux.
 

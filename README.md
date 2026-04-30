@@ -25,7 +25,7 @@ The repository is now organized around a cleaner evaluation story:
 For this project, the recommended order is:
 
 1. run the deterministic smoke benchmark to validate the harness
-2. run the LLM-backed `mini_repair` benchmark as the main quantitative result
+2. run the LLM-backed `mini_repair` benchmark in patch-selection mode as the main quantitative result
 3. use PyBugHive only as a qualitative or small-slice external validation path
 4. treat SWE-bench Lite as an optional future public benchmark, not a day-one dependency
 
@@ -52,6 +52,7 @@ This runs:
 
 - `react`
 - `bugstate`
+- `repair-mode=select`
 
 using:
 
@@ -89,7 +90,7 @@ It lets us test whether a persistent `BugState` helps preserve and use debugging
 - failing tests
 - code snippets
 
-without letting Docker, `pipenv`, or legacy repository setup dominate the experiment.
+without letting Docker, `pipenv`, legacy repository setup, or brittle free-form patch generation dominate the experiment.
 
 ## Optional real-world validation
 
