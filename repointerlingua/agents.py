@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from repointerlingua.patching import PatchApplyError
 from repointerlingua.reasoners import JsonPromptReasoner, PatternReasoner
 from repointerlingua.runtime import WorkspaceSession
 from repointerlingua.schemas import BugState, EpisodeResult, Observation, PatchOperation, TaskSpec
@@ -9,10 +10,11 @@ from repointerlingua.utils import clamp_tail, ensure_dir, write_json
 
 
 class BaseAgent:
-    def __init__(self, name: str, reasoner, transcript_window_chars: int = 900):
+    def __init__(self, name: str, reasoner, transcript_window_chars: int = 900, max_patch_attempts: int = 2):
         self.name = name
         self.reasoner = reasoner
         self.transcript_window_chars = transcript_window_chars
+        self.max_patch_attempts = max_patch_attempts
 
     def _persist_result(self, run_dir: Path, result: EpisodeResult) -> None:
         ensure_dir(run_dir)
@@ -37,8 +39,13 @@ class BaseAgent:
 
 
 class ReactiveTranscriptAgent(BaseAgent):
-    def __init__(self, reasoner, transcript_window_chars: int = 900):
-        super().__init__("react", reasoner, transcript_window_chars=transcript_window_chars)
+    def __init__(self, reasoner, transcript_window_chars: int = 900, max_patch_attempts: int = 2):
+        super().__init__(
+            "react",
+            reasoner,
+            transcript_window_chars=transcript_window_chars,
+            max_patch_attempts=max_patch_attempts,
+        )
 
     def run(self, task: TaskSpec, run_dir: Path) -> EpisodeResult:
         session = WorkspaceSession(task, run_dir)
@@ -61,22 +68,39 @@ class ReactiveTranscriptAgent(BaseAgent):
             code_observations.append(code_observation)
             transcript.append(f"[code:{code_observation.path}]\n{code_observation.content}")
 
-        clipped = clamp_tail("\n\n".join(transcript), self.transcript_window_chars)
-        patch_set = self.reasoner.propose_patch_from_transcript(task, clipped)
         patch_applied = False
         final_result = initial
         notes = []
+        patch_set = []
 
-        patch_set = self._filter_patch_set(patch_set, code_observations, notes)
+        for attempt in range(1, self.max_patch_attempts + 1):
+            clipped = clamp_tail("\n\n".join(transcript), self.transcript_window_chars)
+            patch_set = self.reasoner.propose_patch_from_transcript(task, clipped)
+            patch_set = self._filter_patch_set(patch_set, code_observations, notes)
 
-        if patch_set:
-            session.apply_patches(patch_set)
+            if not patch_set:
+                if attempt == 1:
+                    notes.append("No patch proposed from transcript window.")
+                else:
+                    notes.append(f"No valid patch proposed from transcript window on attempt {attempt}.")
+                break
+
+            try:
+                session.apply_patches(patch_set)
+            except PatchApplyError as exc:
+                feedback = Observation(kind="patch_feedback", content=str(exc))
+                observations.append(feedback)
+                transcript.append(f"[patch-error:{attempt}]\n{feedback.content}")
+                notes.append(f"Patch application failed on transcript attempt {attempt}: {exc}")
+                if attempt == self.max_patch_attempts:
+                    break
+                continue
+
             patch_applied = True
             final_result = session.run_tests()
             observations.append(final_result.to_observation())
-            notes.append("Patch proposed from transcript window.")
-        else:
-            notes.append("No patch proposed from transcript window.")
+            notes.append(f"Patch proposed from transcript window on attempt {attempt}.")
+            break
 
         result = EpisodeResult(
             benchmark=task.benchmark,
@@ -99,8 +123,13 @@ class ReactiveTranscriptAgent(BaseAgent):
 
 
 class BugStateAgent(BaseAgent):
-    def __init__(self, reasoner, transcript_window_chars: int = 900):
-        super().__init__("bugstate", reasoner, transcript_window_chars=transcript_window_chars)
+    def __init__(self, reasoner, transcript_window_chars: int = 900, max_patch_attempts: int = 2):
+        super().__init__(
+            "bugstate",
+            reasoner,
+            transcript_window_chars=transcript_window_chars,
+            max_patch_attempts=max_patch_attempts,
+        )
 
     def run(self, task: TaskSpec, run_dir: Path) -> EpisodeResult:
         session = WorkspaceSession(task, run_dir)
@@ -127,21 +156,39 @@ class BugStateAgent(BaseAgent):
             state = self.reasoner.update_bug_state(task, state, code_observation)
             state_history.append({"step": f"read:{code_observation.path}", "state": state.to_dict()})
 
-        patch_set = self.reasoner.propose_patch_from_state(task, state, code_observations)
         patch_applied = False
         final_result = initial
         notes = []
+        patch_set = []
 
-        patch_set = self._filter_patch_set(patch_set, code_observations, notes)
+        for attempt in range(1, self.max_patch_attempts + 1):
+            patch_set = self.reasoner.propose_patch_from_state(task, state, code_observations)
+            patch_set = self._filter_patch_set(patch_set, code_observations, notes)
 
-        if patch_set:
-            session.apply_patches(patch_set)
+            if not patch_set:
+                if attempt == 1:
+                    notes.append("No patch proposed from BugState.")
+                else:
+                    notes.append(f"No valid patch proposed from BugState on attempt {attempt}.")
+                break
+
+            try:
+                session.apply_patches(patch_set)
+            except PatchApplyError as exc:
+                feedback = Observation(kind="patch_feedback", content=str(exc))
+                observations.append(feedback)
+                state = self.reasoner.update_bug_state(task, state, feedback)
+                state_history.append({"step": f"patch-feedback:{attempt}", "state": state.to_dict()})
+                notes.append(f"Patch application failed on BugState attempt {attempt}: {exc}")
+                if attempt == self.max_patch_attempts:
+                    break
+                continue
+
             patch_applied = True
             final_result = session.run_tests()
             observations.append(final_result.to_observation())
-            notes.append("Patch proposed from persistent BugState.")
-        else:
-            notes.append("No patch proposed from BugState.")
+            notes.append(f"Patch proposed from persistent BugState on attempt {attempt}.")
+            break
 
         result = EpisodeResult(
             benchmark=task.benchmark,
@@ -163,9 +210,17 @@ class BugStateAgent(BaseAgent):
         return result
 
 
-def build_agent(agent_name: str, reasoner, transcript_window_chars: int = 900):
+def build_agent(agent_name: str, reasoner, transcript_window_chars: int = 900, max_patch_attempts: int = 2):
     if agent_name == "react":
-        return ReactiveTranscriptAgent(reasoner, transcript_window_chars=transcript_window_chars)
+        return ReactiveTranscriptAgent(
+            reasoner,
+            transcript_window_chars=transcript_window_chars,
+            max_patch_attempts=max_patch_attempts,
+        )
     if agent_name == "bugstate":
-        return BugStateAgent(reasoner, transcript_window_chars=transcript_window_chars)
+        return BugStateAgent(
+            reasoner,
+            transcript_window_chars=transcript_window_chars,
+            max_patch_attempts=max_patch_attempts,
+        )
     raise ValueError(f"Unknown agent: {agent_name}")

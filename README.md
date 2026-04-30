@@ -1,33 +1,35 @@
 # FINAL PROJECT CS 598
 
-RepoInterlingua is a complete end-to-end research project for testing a RYS-inspired idea on software agents:
+RepoInterlingua is a research codebase for testing a RYS-inspired idea on software agents:
 
-> Does forcing a software debugging agent to reason through an explicit, persistent, language-agnostic middle representation improve bug-fixing performance?
+> Does forcing a debugging agent to reason through an explicit persistent `BugState` improve software repair compared with a transcript-only baseline?
 
-The project is designed in two layers:
+The repository is now organized around a cleaner evaluation story:
 
-- `benchmarks/mini_repair`: a local, dependency-light benchmark that runs on this Mac and always gives us smoke-test results.
-- `PyBugHive` integration: a real-bug adapter and experiment pipeline for larger GPU-backed runs on a separate Linux machine.
-
-The central method is a `BugState` interlingua. Instead of letting the agent jump directly from raw issue text and test logs to a patch, the proposed agent repeatedly translates observations into a structured state, reasons over that state, and only then proposes edits.
+- `benchmarks/mini_repair`: the primary controlled benchmark for the project
+- optional real-world validation on `PyBugHive`
+- optional future public-benchmark validation on SWE-bench Lite dev instances if Docker or Modal is available
 
 ## What is in this folder
 
-- `repointerlingua/`: the Python package with agents, benchmark loaders, runtime, training export, GPU fine-tuning hooks, and CLI.
-- `benchmarks/mini_repair/`: five synthetic but realistic Python bug-fix tasks for local validation.
-- `configs/`: example local and GPU configs.
-- `reports/`: report materials and generated local results.
-- `scripts/`: convenience wrappers for local smoke runs and GPU experiments.
-- `software-agents-course/`: optional cloned reference material from the CS 598 course repo.
-- `PyBugHive/`: optional cloned benchmark reference.
+- `repointerlingua/`: agents, reasoners, runtime, benchmark loaders, reporting, and training utilities
+- `benchmarks/mini_repair/`: the primary benchmark for the project
+- `configs/`: example configs
+- `reports/`: reports and generated results
+- `scripts/`: local and GPU experiment runners
+- `software-agents-course/`: cloned reference material from the course repo
+- `PyBugHive/`: optional cloned benchmark reference
 
-## Fetch dependencies
+## Recommended benchmark stack
 
-Clone the external reference repos when needed:
+For this project, the recommended order is:
 
-```bash
-bash scripts/fetch_dependencies.sh
-```
+1. run the deterministic smoke benchmark to validate the harness
+2. run the LLM-backed `mini_repair` benchmark as the main quantitative result
+3. use PyBugHive only as a qualitative or small-slice external validation path
+4. treat SWE-bench Lite as an optional future public benchmark, not a day-one dependency
+
+This keeps the main results focused on the agent architecture rather than old packaging or environment drift.
 
 ## Quick start
 
@@ -35,30 +37,67 @@ From this directory:
 
 ```bash
 python3 -m repointerlingua.cli list-tasks
-python3 -m repointerlingua.cli compare --benchmark mini_repair --agents react bugstate --reasoner pattern --output reports/local_results
-```
-
-Or use the wrapper:
-
-```bash
 bash scripts/run_smoke.sh
 ```
 
-## Expected local behavior
+## Main experiment
 
-The local smoke benchmark is intentionally tiny and deterministic. It is not the final research claim. Its job is to verify:
+The main experiment is the LLM-backed `mini_repair` comparison:
 
-- the benchmark loader works
-- the workspace copy/apply/evaluate loop works
-- the explicit-state agent works end to end
-- result files and summaries are generated
-- the same framework is ready for bigger PyBugHive runs
+```bash
+bash scripts/run_mini_llm.sh
+```
 
-## GPU path
+This runs:
 
-For a GPU machine, the intended workflow is:
+- `react`
+- `bugstate`
 
-1. Prepare a PyBugHive manifest:
+using:
+
+- `reasoner=llm`
+- `backend=transformers`
+- `model=Qwen/Qwen2.5-Coder-7B-Instruct`
+
+Outputs go to:
+
+- `reports/mini_repair_qwen/summary.md`
+- `reports/mini_repair_qwen/summary.json`
+
+Override the defaults if needed:
+
+```bash
+MODEL=Qwen/Qwen2.5-Coder-7B-Instruct \
+OUT=reports/mini_repair_custom \
+TRANSCRIPT_WINDOW_CHARS=1200 \
+MAX_PATCH_ATTEMPTS=2 \
+bash scripts/run_mini_llm.sh
+```
+
+## Why `mini_repair` is primary
+
+`mini_repair` is intentionally:
+
+- deterministic
+- dependency-light
+- fast to run
+- matched to the actual hypothesis
+
+It lets us test whether a persistent `BugState` helps preserve and use debugging evidence across:
+
+- issue text
+- failing tests
+- code snippets
+
+without letting Docker, `pipenv`, or legacy repository setup dominate the experiment.
+
+## Optional real-world validation
+
+### PyBugHive
+
+PyBugHive is still supported, but it is now considered optional validation rather than the backbone of the project.
+
+Prepare a manifest:
 
 ```bash
 python3 -m repointerlingua.cli prepare-pybughive \
@@ -66,7 +105,7 @@ python3 -m repointerlingua.cli prepare-pybughive \
   --output reports/pybughive_small_manifest.jsonl
 ```
 
-2. Run the bugstate agent with a local Hugging Face model backend:
+Then run:
 
 ```bash
 python3 -m repointerlingua.cli eval \
@@ -76,30 +115,32 @@ python3 -m repointerlingua.cli eval \
   --reasoner llm \
   --backend transformers \
   --model Qwen/Qwen2.5-Coder-7B-Instruct \
-  --output reports/pybughive_runs
+  --output reports/pybughive_bugstate_qwen
 ```
 
-3. Export successful trajectories for supervised fine-tuning:
+### SWE-bench Lite
+
+SWE-bench Lite is a better long-term public benchmark target than PyBugHive, but the official evaluation flow depends on Docker or a cloud-backed evaluation path. This repo does not currently make SWE-bench Lite the primary path because the project should succeed without Docker-specific infrastructure.
+
+## GPU path
+
+For a GPU machine, the intended workflow is:
+
+1. run `bash scripts/run_mini_llm.sh`
+2. inspect `reports/mini_repair_qwen/summary.md`
+3. optionally run a small PyBugHive validation slice
+4. optionally export trajectories and fine-tune
+
+On Delta, a convenience batch script is provided:
 
 ```bash
-python3 -m repointerlingua.cli export-sft \
-  --runs reports/pybughive_runs \
-  --output reports/sft_data
-```
-
-4. Fine-tune on a GPU machine:
-
-```bash
-python3 -m repointerlingua.cli train-lora \
-  --train-file reports/sft_data/patch_generation.jsonl \
-  --model Qwen/Qwen2.5-Coder-7B-Instruct \
-  --output-dir reports/lora_patch_model
+sbatch scripts/delta_mini_llm_compare.sbatch
 ```
 
 ## Project status
 
-This repository is set up to be immediately useful in three ways:
+This repository is set up to be useful in three ways:
 
-- you can run a complete local experiment on this computer
-- you can scale the same code to larger GPU experiments
-- you can keep refining the prompts, backends, and benchmark mix without rewriting the framework
+- it gives a complete local or GPU-run main benchmark
+- it preserves an external-validation path for real-world bugs
+- it can still be extended toward SWE-bench Lite or LoRA fine-tuning later

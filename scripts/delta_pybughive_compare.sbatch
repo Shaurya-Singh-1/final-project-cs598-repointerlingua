@@ -14,7 +14,11 @@
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 
-source .venv/bin/activate
+if [[ -f .venv-gpu/bin/activate ]]; then
+  source .venv-gpu/bin/activate
+else
+  source .venv/bin/activate
+fi
 
 if [[ ! -f reports/pybughive_small_manifest.jsonl ]]; then
   python3 -m repointerlingua.cli prepare-pybughive \

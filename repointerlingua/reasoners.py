@@ -82,6 +82,8 @@ class PatternReasoner:
             if observation.path and observation.path not in updated.suspect_files:
                 updated.suspect_files.append(observation.path)
             updated.code_facts.extend(_compact_lines(observation.content))
+        elif observation.kind == "patch_feedback":
+            updated.error_messages.extend(_compact_lines(observation.content))
 
         # Keep the state concise and persistent.
         updated.issue_facts = updated.issue_facts[:12]
@@ -161,7 +163,7 @@ class JsonPromptReasoner:
         raise ValueError(f"Could not find JSON object in model output: {text}")
 
     def update_bug_state(self, task: TaskSpec, state: BugState, observation: Observation) -> BugState:
-        observation_content = _truncate_for_prompt(observation.content)
+        observation_content = _truncate_for_prompt(observation.content, limit=1200)
         messages = [
             Message(
                 role="system",
@@ -223,7 +225,7 @@ class JsonPromptReasoner:
     ) -> list[PatchOperation]:
         code_payload = []
         for observation in code_observations or []:
-            code_payload.append({"path": observation.path, "content": observation.content})
+            code_payload.append({"path": observation.path, "content": _truncate_for_prompt(observation.content, 2200)})
         messages = [
             Message(
                 role="system",
@@ -231,6 +233,8 @@ class JsonPromptReasoner:
                     "You are a software repair agent. Return JSON only with keys rationale and patches. "
                     "Each patch must have path, search, and replace. "
                     "Use only file paths that appear in Candidate files exactly. "
+                    "The search text must be copied verbatim from a Candidate file. "
+                    "Use the smallest unique exact search block you can find. "
                     "If unsure, return an empty patches list. Never invent placeholder paths."
                 ),
             ),
@@ -268,6 +272,8 @@ class JsonPromptReasoner:
                     "You are a software repair agent with limited context. Return JSON only with keys rationale and patches. "
                     "Each patch must have path, search, and replace. "
                     "Use only file paths that appear in the transcript exactly. "
+                    "The search text must be copied verbatim from the transcript. "
+                    "Use the smallest unique exact search block you can find. "
                     "If unsure, return an empty patches list. Never invent placeholder paths."
                 ),
             ),

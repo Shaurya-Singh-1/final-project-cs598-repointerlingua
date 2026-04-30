@@ -80,7 +80,12 @@ def cmd_list_tasks(_args):
 def cmd_eval(args):
     tasks = _load_tasks(args)
     reasoner = _build_reasoner(args)
-    agent = build_agent(args.agent, reasoner, transcript_window_chars=args.transcript_window_chars)
+    agent = build_agent(
+        args.agent,
+        reasoner,
+        transcript_window_chars=args.transcript_window_chars,
+        max_patch_attempts=args.max_patch_attempts,
+    )
     output_dir = ensure_dir(Path(args.output))
     results = []
     for task in tasks:
@@ -103,7 +108,12 @@ def cmd_compare(args):
 
     for agent_name in args.agents:
         reasoner = _build_reasoner(args)
-        agent = build_agent(agent_name, reasoner, transcript_window_chars=args.transcript_window_chars)
+        agent = build_agent(
+            agent_name,
+            reasoner,
+            transcript_window_chars=args.transcript_window_chars,
+            max_patch_attempts=args.max_patch_attempts,
+        )
         for task in tasks:
             run_dir = output_dir / agent_name / task.task_id
             try:
@@ -148,7 +158,8 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument("--backend", default="transformers")
     eval_parser.add_argument("--model", default="")
     eval_parser.add_argument("--output", required=True)
-    eval_parser.add_argument("--transcript-window-chars", type=int, default=350)
+    eval_parser.add_argument("--transcript-window-chars", type=int, default=1200)
+    eval_parser.add_argument("--max-patch-attempts", type=int, default=2)
     eval_parser.add_argument("--manifest")
     eval_parser.add_argument("--task-id", action="append")
     eval_parser.add_argument("--limit", type=int)
@@ -160,7 +171,8 @@ def build_parser() -> argparse.ArgumentParser:
     compare_parser.add_argument("--backend", default="transformers")
     compare_parser.add_argument("--model", default="")
     compare_parser.add_argument("--output", required=True)
-    compare_parser.add_argument("--transcript-window-chars", type=int, default=350)
+    compare_parser.add_argument("--transcript-window-chars", type=int, default=1200)
+    compare_parser.add_argument("--max-patch-attempts", type=int, default=2)
     compare_parser.add_argument("--manifest")
     compare_parser.add_argument("--task-id", action="append")
     compare_parser.add_argument("--limit", type=int)

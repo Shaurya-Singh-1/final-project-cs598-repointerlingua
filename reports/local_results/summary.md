@@ -2,16 +2,16 @@
 
 | Agent | Solved | Total | Solve Rate | Patches Applied |
 | :--- | ---: | ---: | ---: | ---: |
-| react | 2 | 5 | 0.400 | 2 |
+| react | 4 | 5 | 0.800 | 4 |
 | bugstate | 5 | 5 | 1.000 | 5 |
 
 ## Per-task outcomes
 
 | Task | Agent | Solved | Patch Applied |
 | :--- | :--- | :---: | :---: |
-| csv_quoted_cells | react | no | no |
+| csv_quoted_cells | react | yes | yes |
 | env_case_override | react | no | no |
-| nested_config_merge | react | no | no |
+| nested_config_merge | react | yes | yes |
 | parse_iso_z_suffix | react | yes | yes |
 | request_scheme_validation | react | yes | yes |
 | csv_quoted_cells | bugstate | yes | yes |
