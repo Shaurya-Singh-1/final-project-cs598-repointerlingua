@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -125,6 +126,8 @@ class WorkspaceSession:
             (self.run_root / "install.log").write_text("\n\n".join(install_logs), encoding="utf-8")
 
     def _normalize_install_command(self, command: str) -> str:
+        command = re.sub(r"\bpipenv\b", f'"{sys.executable}" -m pipenv', command)
+
         match = re.search(r"pipenv\s+--python\s+([0-9.]+)", command)
         if not match:
             return command
@@ -141,22 +144,23 @@ class WorkspaceSession:
         if os.getenv(env_key):
             return os.environ[env_key]
 
+        uv_binary = shutil.which("uv")
+        if uv_binary:
+            find_result = subprocess.run(
+                [uv_binary, "python", "find", version],
+                cwd=self.run_root,
+                text=True,
+                capture_output=True,
+            )
+            if find_result.returncode == 0 and find_result.stdout.strip():
+                return find_result.stdout.strip()
+
         resolved = shutil.which(f"python{version}")
         if resolved:
-            return resolved
+            return str(Path(resolved).resolve())
 
-        uv_binary = shutil.which("uv")
         if not uv_binary:
             return None
-
-        find_result = subprocess.run(
-            [uv_binary, "python", "find", version],
-            cwd=self.run_root,
-            text=True,
-            capture_output=True,
-        )
-        if find_result.returncode == 0 and find_result.stdout.strip():
-            return find_result.stdout.strip()
 
         install_result = subprocess.run(
             [uv_binary, "python", "install", version],
